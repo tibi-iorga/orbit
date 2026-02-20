@@ -13,36 +13,41 @@ All application code lives in `app/`. The `planning/` folder contains product co
 All commands run from `app/`:
 
 ```bash
-npm run dev          # Start Next.js dev server (localhost:3000)
-npm run build        # Production build
-npm run lint         # ESLint
-npm run db:push      # Apply schema changes to SQLite (no migration history)
-npm run db:generate  # Regenerate Prisma client after schema edits
-npm run db:seed      # Seed default dimensions + admin user (idempotent)
+npm run dev              # Start Next.js dev server (localhost:3000)
+npm run build            # Production build (includes prisma generate)
+npm run lint             # ESLint
+npm run db:push          # Apply schema changes (development)
+npm run db:migrate       # Create migration (development)
+npm run db:migrate:deploy # Deploy migrations (production)
+npm run db:generate      # Regenerate Prisma client
+npm run db:seed          # Seed default dimensions + admin user (idempotent)
+npm run db:studio        # Open Prisma Studio (database GUI)
 ```
 
 **First-time setup:**
 ```bash
 cd app
 npm install
-cp .env.example .env   # Fill in NEXTAUTH_SECRET and OPENAI_API_KEY
-npm run db:push
-npm run db:seed        # Creates admin@example.com / changeme
+cp .env.example .env
+# Edit .env: Add DATABASE_URL, NEXTAUTH_SECRET, NEXTAUTH_URL, OPENAI_API_KEY
+npm run db:push          # Creates database schema
+npm run db:seed         # Creates admin@example.com / changeme
 npm run dev
 ```
 
 ## Environment Variables
 
-| Variable | Purpose |
-|---|---|
-| `NEXTAUTH_SECRET` | JWT signing key — generate with `openssl rand -base64 32` |
-| `NEXTAUTH_URL` | App origin, e.g. `http://localhost:3000` |
-| `OPENAI_API_KEY` | Used by auto-cluster and report summary routes (gpt-4o-mini) |
+| Variable | Purpose | Required |
+|---|---|---|
+| `DATABASE_URL` | PostgreSQL connection string | Yes |
+| `NEXTAUTH_SECRET` | JWT signing key — generate with `openssl rand -base64 32` | Yes |
+| `NEXTAUTH_URL` | App origin, e.g. `http://localhost:3000` or production URL | Yes |
+| `OPENAI_API_KEY` | Used by auto-cluster and report summary routes (gpt-4o-mini) | No |
 
 ## Architecture
 
 ### Tech Stack
-Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma with SQLite, NextAuth v4 (credentials/JWT), OpenAI SDK, PapaParse.
+Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma with PostgreSQL, NextAuth v4 (credentials/JWT), OpenAI SDK, PapaParse.
 
 ### Data Model (`prisma/schema.prisma`)
 - **User** — email + bcrypt password hash

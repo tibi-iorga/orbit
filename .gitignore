@@ -31,6 +31,7 @@ yarn-error.log*
 app/prisma/dev.db*
 app/prisma/*.db
 app/prisma/*.db-journal
+app/prisma/migrations/
 
 # IDE
 .vscode/
