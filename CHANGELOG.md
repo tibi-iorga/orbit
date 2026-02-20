@@ -7,10 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-02-20
+
 ### Changed
 - Migrated from SQLite to PostgreSQL for production deployment
 - Updated build process to generate Prisma client automatically
-- Added comprehensive deployment documentation
+- Removed SQLite-specific webpack configuration
+
+### Added
+- Comprehensive deployment documentation (DEPLOYMENT.md, SETUP.md)
+- Database setup scripts for bash and PowerShell
+- Migration commands (db:migrate, db:migrate:deploy)
+- Prisma Studio command (db:studio)
+- GitHub Actions CI workflow
+- CONTRIBUTING.md for development workflow
+- DATABASE_URL environment variable requirement
 
 ## [0.2.0] - 2026-02-20
 
