@@ -121,6 +121,7 @@ export default function OpportunitiesPage() {
         weight: d.weight,
         order: d.order,
         tag: d.tag,
+        direction: d.direction,
       })),
     [dimensions]
   );

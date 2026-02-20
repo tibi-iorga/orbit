@@ -32,6 +32,7 @@ export async function GET(
       weight: d.weight,
       order: d.order,
       tag: d.tag,
+      direction: (d.direction ?? "benefit") as "benefit" | "cost",
     }));
 
     const scores = parseScores(opportunity.scores);

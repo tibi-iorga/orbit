@@ -40,6 +40,7 @@ export async function GET(request: Request) {
       weight: d.weight,
       order: d.order,
       tag: d.tag,
+      direction: (d.direction ?? "benefit") as "benefit" | "cost",
     }));
 
     const opportunitiesWithScores = opportunities.map((r) => {

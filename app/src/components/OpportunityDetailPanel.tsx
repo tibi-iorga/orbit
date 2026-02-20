@@ -160,6 +160,7 @@ export function OpportunityDetailPanel({
     weight: d.weight,
     order: d.order,
     tag: d.tag,
+    direction: d.direction,
   }));
 
   const combinedScore = computeCombinedScore(opportunity.scores, dimConfig);

@@ -1,4 +1,5 @@
 export type DimensionType = "yesno" | "scale";
+export type DimensionDirection = "benefit" | "cost";
 
 export interface DimensionConfig {
   id: string;
@@ -7,6 +8,7 @@ export interface DimensionConfig {
   weight: number;
   order: number;
   tag: string;
+  direction: DimensionDirection;
 }
 
 export function parseScores(json: string | null): Record<string, number> {
@@ -31,7 +33,10 @@ export function computeCombinedScore(
   for (const d of dimensions) {
     const v = scores[d.id];
     if (v === undefined) continue;
-    total += v * d.weight;
+    const cap = d.type === "yesno" ? 1 : 3;
+    // For cost dimensions, invert: a score of 3 becomes 1, 1 becomes 3
+    const effective = d.direction === "cost" ? cap - v + 1 : v;
+    total += effective * d.weight;
   }
   return Math.round(total * 10) / 10;
 }

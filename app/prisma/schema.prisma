@@ -60,12 +60,13 @@ model Opportunity {
 }
 
 model Dimension {
-  id     String  @id @default(cuid())
-  name   String
-  type   String  // "yesno" | "scale"
-  weight Float   @default(1)
-  order  Int     @default(0)
-  tag    String  @default("General") // e.g. "Medical", "Ops", "Engineering", "Bids"
+  id        String  @id @default(cuid())
+  name      String
+  type      String  // "yesno" | "scale"
+  weight    Float   @default(1)
+  order     Int     @default(0)
+  tag       String  @default("") // free-text scoring hint
+  direction String  @default("benefit") // "benefit" (higher = better) | "cost" (higher = worse)
 }
 
 model FeedbackItem {

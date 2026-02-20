@@ -35,6 +35,7 @@ export async function POST(request: Request) {
     weight: d.weight,
     order: d.order,
     tag: d.tag,
+    direction: (d.direction ?? "benefit") as "benefit" | "cost",
   }));
 
   const scores = parseScores(opp.scores);

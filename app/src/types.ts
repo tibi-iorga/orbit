@@ -1,4 +1,5 @@
 export type DimensionType = "yesno" | "scale";
+export type DimensionDirection = "benefit" | "cost";
 
 export interface Dimension {
   id: string;
@@ -7,6 +8,7 @@ export interface Dimension {
   weight: number;
   order: number;
   tag: string;
+  direction: DimensionDirection;
 }
 
 export type FeedbackStatus = "new" | "reviewed" | "rejected";
