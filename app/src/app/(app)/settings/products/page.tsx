@@ -7,7 +7,7 @@ interface Product {
   name: string;
   description: string | null;
   parentId: string | null;
-  featureCount: number;
+  feedbackCount: number;
   importCount: number;
   createdAt: string;
   children?: Product[];
@@ -109,8 +109,8 @@ export default function ProductsSettingsPage() {
     let message = `Delete "${product.name}"?`;
     if (hasChildren) {
       message += " This product has child products. Delete or reassign them first.";
-    } else if (product.featureCount > 0) {
-      message += ` This will remove ${product.featureCount} features and ${product.importCount} imports.`;
+    } else if (product.feedbackCount > 0) {
+      message += ` This product has ${product.feedbackCount} feedback items — they will become unassigned.`;
     }
     if (!confirm(message)) return;
     try {
@@ -250,7 +250,7 @@ export default function ProductsSettingsPage() {
             </button>
           </div>
           <div className="text-xs text-gray-500">
-            {product.featureCount} {product.featureCount === 1 ? "feature" : "features"} • {product.importCount}{" "}
+            {product.feedbackCount} {product.feedbackCount === 1 ? "feedback item" : "feedback items"} • {product.importCount}{" "}
             {product.importCount === 1 ? "import" : "imports"}
           </div>
         </div>

@@ -9,7 +9,7 @@ const FEEDBACK_LIST_TTL_MS = 2 * 60 * 1000; // Feedback list: 2 minutes
 const STATIC_DATA_TTL_MS = 60 * 60 * 1000; // Products and dimensions: 1 hour (they change very rarely)
 
 import type { Opportunity, Dimension } from "@/types";
-type ProductFlat = { id: string; name: string }[];
+type ProductFlat = { id: string; name: string; parentId?: string | null; feedbackCount?: number }[];
 type ProductsResponse = { flat: ProductFlat; tree: Record<string, unknown>[] };
 
 export type FeedbackListResponse = {

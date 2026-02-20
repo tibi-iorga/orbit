@@ -94,6 +94,7 @@ export function OpportunityModal({
             status: "draft",
             scores: {},
             explanation: {},
+            reportSummary: null,
             feedbackCount: 0,
             combinedScore: 0,
             productName: products.find((p) => p.id === newOpportunity.productId)?.name || null,

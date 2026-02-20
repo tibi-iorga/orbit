@@ -12,13 +12,12 @@ import {
   ArrowUpTrayIcon,
   InboxIcon,
 } from "@heroicons/react/24/outline";
-import { buildProductPath } from "@/lib/product-slug";
 import { getCachedProductsRaw } from "@/lib/cache";
 
 interface Product {
   id: string;
   name: string;
-  featureCount: number;
+  feedbackCount?: number;
   parentId?: string | null;
   children?: Product[];
 }
@@ -47,60 +46,58 @@ function ProductNode({
   const hasChildren = product.children && product.children.length > 0;
   const isExpanded = expandedProductIds.has(product.id);
   const isActive = currentProductId === product.id;
-  
-  const productPath = buildProductPath(product, allProducts);
+
   const productUrl = `/opportunities?productId=${product.id}`;
 
   return (
     <li>
       {hasChildren ? (
-        <Disclosure as="div" open={isExpanded} onChange={() => onToggleExpand(product.id)}>
-          {({ open }) => (
-            <>
-              <div className="flex items-center group">
-                <Link
-                  href={productUrl}
-                  onClick={onNavigate}
-                  className={classNames(
-                    isActive ? "bg-gray-800 text-white" : "hover:bg-white/5 hover:text-white",
-                    "flex-1 block rounded-md py-2 pr-2 pl-9 text-sm/6 text-gray-400",
-                  )}
-                  style={{ paddingLeft: level > 0 ? `${level * 12 + 44}px` : undefined }}
-                >
-                  {product.name}
-                </Link>
-                <DisclosureButton
-                  className="p-1 -ml-1 text-gray-400 hover:text-white"
-                >
-                  <ChevronRightIcon
-                    aria-hidden="true"
-                    className={classNames(
-                      "size-5 shrink-0 transition-transform duration-200",
-                      open ? "rotate-90 text-white" : "",
-                    )}
-                  />
-                </DisclosureButton>
-              </div>
-              <DisclosurePanel as="ul" className="mt-1 px-2">
-                {product.children!.map((child) => (
-                  <ProductNode
-                    key={child.id}
-                    product={child}
-                    currentProductId={currentProductId}
-                    expandedProductIds={expandedProductIds}
-                    onToggleExpand={onToggleExpand}
-                    level={level + 1}
-                    onNavigate={onNavigate}
-                    allProducts={allProducts}
-                  />
-                ))}
-              </DisclosurePanel>
-            </>
+        <>
+          <div className="flex items-center group">
+            <Link
+              href={productUrl}
+              onClick={onNavigate}
+              className={classNames(
+                isActive ? "bg-gray-800 text-white" : "hover:bg-white/5 hover:text-white",
+                "flex-1 block rounded-md py-2 pr-2 pl-9 text-sm/6 text-gray-400",
+              )}
+              style={{ paddingLeft: level > 0 ? `${level * 12 + 44}px` : undefined }}
+            >
+              {product.name}
+            </Link>
+            <button
+              type="button"
+              onClick={() => onToggleExpand(product.id)}
+              className="p-1 -ml-1 text-gray-400 hover:text-white"
+            >
+              <ChevronRightIcon
+                aria-hidden="true"
+                className={classNames(
+                  "size-5 shrink-0 transition-transform duration-200",
+                  isExpanded ? "rotate-90 text-white" : "",
+                )}
+              />
+            </button>
+          </div>
+          {isExpanded && (
+            <ul className="mt-1 px-2">
+              {product.children!.map((child) => (
+                <ProductNode
+                  key={child.id}
+                  product={child}
+                  currentProductId={currentProductId}
+                  expandedProductIds={expandedProductIds}
+                  onToggleExpand={onToggleExpand}
+                  level={level + 1}
+                  onNavigate={onNavigate}
+                  allProducts={allProducts}
+                />
+              ))}
+            </ul>
           )}
-        </Disclosure>
+        </>
       ) : (
-        <DisclosureButton
-          as={Link}
+        <Link
           href={productUrl}
           onClick={onNavigate}
           className={classNames(
@@ -110,7 +107,7 @@ function ProductNode({
           style={{ paddingLeft: level > 0 ? `${level * 12 + 44}px` : undefined }}
         >
           {product.name}
-        </DisclosureButton>
+        </Link>
       )}
     </li>
   );
@@ -163,8 +160,8 @@ export function Sidebar({
   useEffect(() => {
     getCachedProductsRaw()
       .then((data) => {
-        setProducts(data?.tree || []);
-        setFlatProducts(data?.flat || []);
+        setProducts((data?.tree as unknown as Product[]) || []);
+        setFlatProducts((data?.flat as unknown as Product[]) || []);
         
         const resolvedProductId = currentProductId;
         

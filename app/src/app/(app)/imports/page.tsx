@@ -9,9 +9,7 @@ interface ImportRecord {
   productId: string | null;
   productName: string | null;
   createdAt: string;
-  featureCount: number;
-  scoredCount: number;
-  unscoredCount: number;
+  feedbackCount: number;
 }
 
 export default function ImportsPage() {
@@ -43,7 +41,7 @@ export default function ImportsPage() {
   async function remove(id: string) {
     const importRecord = imports.find((imp) => imp.id === id);
     if (!importRecord) return;
-    const message = `Delete import "${importRecord.filename}"? This will permanently delete ${importRecord.featureCount} features.`;
+    const message = `Delete import "${importRecord.filename}"? This will permanently delete ${importRecord.feedbackCount} feedback items.`;
     if (!confirm(message)) return;
     await fetch(`/api/imports?id=${encodeURIComponent(id)}`, { method: "DELETE" });
     load();
@@ -100,10 +98,7 @@ export default function ImportsPage() {
                   Date
                 </th>
                 <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                  Features
-                </th>
-                <th scope="col" className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
-                  Status
+                  Feedback items
                 </th>
                 <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
                   <span className="sr-only">Actions</span>
@@ -123,16 +118,7 @@ export default function ImportsPage() {
                     {new Date(imp.createdAt).toLocaleDateString()}
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                    {imp.featureCount}
-                  </td>
-                  <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
-                    {imp.scoredCount > 0 && (
-                      <span className="text-blue-600">{imp.scoredCount} scored</span>
-                    )}
-                    {imp.scoredCount > 0 && imp.unscoredCount > 0 && " • "}
-                    {imp.unscoredCount > 0 && (
-                      <span className="text-gray-400">{imp.unscoredCount} unscored</span>
-                    )}
+                    {imp.feedbackCount}
                   </td>
                   <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
                     <button
