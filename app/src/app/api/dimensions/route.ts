@@ -33,6 +33,7 @@ export async function POST(request: Request) {
         order: typeof order === "number" ? order : (maxOrder._max.order ?? -1) + 1,
         tag: tag || "",
         direction: direction === "cost" ? "cost" : "benefit",
+        archived: false,
       },
     });
     return NextResponse.json(dimension);
@@ -50,15 +51,24 @@ export async function PATCH(request: Request) {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     const body = await request.json();
-    const { id, name, type, weight, order, tag, direction } = body;
+    const { id, name, type, weight, order, tag, direction, archived } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
-    const data: { name?: string; type?: string; weight?: number; order?: number; tag?: string; direction?: string } = {};
+    const data: {
+      name?: string;
+      type?: string;
+      weight?: number;
+      order?: number;
+      tag?: string;
+      direction?: string;
+      archived?: boolean;
+    } = {};
     if (name !== undefined) data.name = name;
     if (type !== undefined) data.type = type === "scale" ? "scale" : "yesno";
     if (weight !== undefined) data.weight = weight;
     if (order !== undefined) data.order = order;
     if (tag !== undefined) data.tag = tag;
     if (direction !== undefined) data.direction = direction === "cost" ? "cost" : "benefit";
+    if (archived !== undefined) data.archived = Boolean(archived);
     const dimension = await prisma.dimension.update({ where: { id }, data });
     return NextResponse.json(dimension);
   } catch (error) {
@@ -80,6 +90,28 @@ export async function DELETE(request: Request) {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    // Count opportunities that have a score for this dimension
+    const scoredCount = await prisma.opportunity.count({
+      where: { scores: { contains: id } },
+    });
+
+    // Check for explicit confirmation
+    let confirmed = false;
+    try {
+      const body = await request.json();
+      confirmed = body.confirmed === true;
+    } catch {
+      // No body or not JSON — confirmed stays false
+    }
+
+    if (!confirmed) {
+      return NextResponse.json(
+        { error: "confirmation required", scoredCount },
+        { status: 400 }
+      );
+    }
+
     await prisma.dimension.delete({ where: { id } });
     return NextResponse.json({ ok: true });
   } catch (error) {

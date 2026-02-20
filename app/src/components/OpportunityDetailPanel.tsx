@@ -5,7 +5,7 @@ import { XMarkIcon } from "@heroicons/react/24/outline";
 import type { Opportunity, Dimension, FeedbackItem } from "@/types";
 import { FeedbackItemModal } from "./FeedbackItemModal";
 import { LinkFeedbackModal } from "./LinkFeedbackModal";
-import { computeCombinedScore, getMaxPossibleScore, type DimensionConfig } from "@/lib/score";
+import { computeCombinedScore, getMaxPossibleScore, NA_SCORE, type DimensionConfig } from "@/lib/score";
 
 interface OpportunityDetailPanelProps {
   opportunity: Opportunity | null;
@@ -164,7 +164,7 @@ export function OpportunityDetailPanel({
   }));
 
   const combinedScore = computeCombinedScore(opportunity.scores, dimConfig);
-  const maxScore = getMaxPossibleScore(dimConfig);
+  const maxScore = getMaxPossibleScore(opportunity.scores, dimConfig);
 
   return (
     <div className="fixed inset-0 z-40 pointer-events-none">
@@ -321,43 +321,47 @@ export function OpportunityDetailPanel({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-200 bg-white">
-                  {dimConfig.map((dim) => (
-                    <tr key={dim.id} className="hover:bg-gray-50/50">
-                      <td className="px-3 py-2 text-sm text-gray-900">{dim.name}</td>
-                      <td className="px-3 py-2">
-                        <select
-                          value={opportunity.scores[dim.id] ?? ""}
-                          onChange={(e) => {
-                            const raw = e.target.value;
-                            const value = raw === "" ? undefined : Number(raw);
-                            const newScores = { ...opportunity.scores };
-                            if (value === undefined) {
-                              delete newScores[dim.id];
-                            } else {
-                              newScores[dim.id] = value;
-                            }
-                            const newExplanation = { ...opportunity.explanation, [dim.id]: opportunity.explanation[dim.id] ?? "" };
-                            onUpdateScore(opportunity.id, newScores, newExplanation);
-                          }}
-                          className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
-                        >
-                          <option value="">—</option>
-                          {dim.type === "yesno" ? (
-                            <>
-                              <option value="1">Yes</option>
-                              <option value="0">No</option>
-                            </>
-                          ) : (
-                            <>
-                              <option value="1">1</option>
-                              <option value="2">2</option>
-                              <option value="3">3</option>
-                            </>
-                          )}
-                        </select>
-                      </td>
-                    </tr>
-                  ))}
+                  {dimConfig.map((dim) => {
+                    const isNA = opportunity.scores[dim.id] === NA_SCORE;
+                    return (
+                      <tr key={dim.id} className={`hover:bg-gray-50/50 ${isNA ? "opacity-40" : ""}`}>
+                        <td className="px-3 py-2 text-sm text-gray-900">{dim.name}</td>
+                        <td className="px-3 py-2">
+                          <select
+                            value={opportunity.scores[dim.id] ?? ""}
+                            onChange={(e) => {
+                              const raw = e.target.value;
+                              const value = raw === "" ? undefined : Number(raw);
+                              const newScores = { ...opportunity.scores };
+                              if (value === undefined) {
+                                delete newScores[dim.id];
+                              } else {
+                                newScores[dim.id] = value;
+                              }
+                              const newExplanation = { ...opportunity.explanation, [dim.id]: opportunity.explanation[dim.id] ?? "" };
+                              onUpdateScore(opportunity.id, newScores, newExplanation);
+                            }}
+                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                          >
+                            <option value="">—</option>
+                            {dim.type === "yesno" ? (
+                              <>
+                                <option value="1">Yes</option>
+                                <option value="0">No</option>
+                              </>
+                            ) : (
+                              <>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                              </>
+                            )}
+                            <option value={NA_SCORE}>N/A</option>
+                          </select>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

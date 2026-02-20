@@ -67,6 +67,7 @@ model Dimension {
   order     Int     @default(0)
   tag       String  @default("") // free-text scoring hint
   direction String  @default("benefit") // "benefit" (higher = better) | "cost" (higher = worse)
+  archived  Boolean @default(false)
 }
 
 model FeedbackItem {

@@ -9,6 +9,7 @@ export interface Dimension {
   order: number;
   tag: string;
   direction: DimensionDirection;
+  archived: boolean;
 }
 
 export type FeedbackStatus = "new" | "reviewed" | "rejected";
