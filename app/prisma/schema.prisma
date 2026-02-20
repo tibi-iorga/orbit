@@ -1,0 +1,69 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  passwordHash   String
+  createdAt      DateTime  @default(now())
+}
+
+model Product {
+  id          String    @id @default(cuid())
+  name        String
+  description String?
+  createdAt   DateTime  @default(now())
+  imports     ImportRecord[]
+  features    Feature[]
+
+  @@index([name])
+}
+
+model ImportRecord {
+  id        String    @id @default(cuid())
+  filename  String
+  productId String?
+  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt DateTime  @default(now())
+  features  Feature[]
+}
+
+model Cluster {
+  id        String    @id @default(cuid())
+  name      String
+  features  Feature[]
+  reportSummary String?
+}
+
+model Dimension {
+  id     String  @id @default(cuid())
+  name   String
+  type   String  // "yesno" | "scale"
+  weight Float   @default(1)
+  order  Int     @default(0)
+}
+
+model Feature {
+  id          String        @id @default(cuid())
+  title       String
+  description String?
+  importId    String
+  import      ImportRecord  @relation(fields: [importId], references: [id], onDelete: Cascade)
+  clusterId   String?
+  cluster     Cluster?      @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  productId   String?
+  product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
+  scores      String?       // JSON: { dimensionId: value }
+  explanation String?       // JSON: { dimensionId: "short explanation" }
+
+  @@index([clusterId])
+  @@index([importId])
+  @@index([productId])
+  @@index([clusterId, title])
+}

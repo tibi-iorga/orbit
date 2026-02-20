@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@import "../styles/theme.css";
+
+body {
+  @apply text-gray-900 antialiased bg-gray-50;
+}
