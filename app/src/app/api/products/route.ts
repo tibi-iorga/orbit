@@ -107,11 +107,11 @@ async function checkCircularReference(productId: string, newParentId: string | n
     if (currentId === productId) return true; // Would create cycle
     visited.add(currentId);
     
-    const parent = await prisma.product.findUnique({
+    const parent: { parentId: string | null } | null = await prisma.product.findUnique({
       where: { id: currentId },
       select: { parentId: true },
     });
-    
+
     currentId = parent?.parentId || null;
   }
   

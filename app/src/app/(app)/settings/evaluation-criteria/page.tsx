@@ -118,7 +118,10 @@ export default function EvaluationCriteriaPage() {
             </label>
             <select
               value={d.tag}
-              onChange={(e) => update(d.id, { tag: e.target.value })}
+              onChange={(e) => {
+                updateLocal(d.id, { tag: e.target.value });
+                save(d.id, { tag: e.target.value });
+              }}
               className="px-3 py-1.5 border border-gray-300 rounded text-sm"
             >
               <option value="General">General</option>

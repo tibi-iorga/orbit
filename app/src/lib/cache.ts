@@ -8,10 +8,9 @@ const TTL_MS = 5 * 60 * 1000; // Opportunities list cache
 const FEEDBACK_LIST_TTL_MS = 2 * 60 * 1000; // Feedback list: 2 minutes
 const STATIC_DATA_TTL_MS = 60 * 60 * 1000; // Products and dimensions: 1 hour (they change very rarely)
 
-type Dimension = { id: string; name: string; type: string; weight: number; order: number; tag: string };
+import type { Opportunity, Dimension } from "@/types";
 type ProductFlat = { id: string; name: string }[];
 type ProductsResponse = { flat: ProductFlat; tree: Record<string, unknown>[] };
-type Opportunity = Record<string, unknown>;
 
 export type FeedbackListResponse = {
   feedbackItems: unknown[];
