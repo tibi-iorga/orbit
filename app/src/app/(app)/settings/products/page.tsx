@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useDebounce } from "@/lib/useDebounce";
 
 interface Product {
   id: string;
@@ -39,13 +40,21 @@ export default function ProductsSettingsPage() {
     load();
   }, []);
 
-  async function update(id: string, patch: Partial<Product>) {
+  async function save(id: string, patch: Partial<Product>) {
     await fetch("/api/products", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...patch }),
     });
     load();
+  }
+
+  const debouncedSave = useDebounce(save, 500);
+
+  function updateLocal(id: string, patch: Partial<Product>) {
+    setProducts((prev) =>
+      prev.map((p) => (p.id === id ? { ...p, ...patch } : p))
+    );
   }
 
   async function add() {
@@ -88,7 +97,7 @@ export default function ProductsSettingsPage() {
     if (!product) return;
     const message =
       product.featureCount > 0
-        ? `Delete "${product.name}"? This will remove ${product.featureCount} features and ${product.importCount} imports.`
+        ? `Delete "${product.name}"? Its ${product.featureCount} feature${product.featureCount === 1 ? "" : "s"} and ${product.importCount} import${product.importCount === 1 ? "" : "s"} will be unassigned but not deleted.`
         : `Delete "${product.name}"?`;
     if (!confirm(message)) return;
     await fetch(`/api/products?id=${encodeURIComponent(id)}`, { method: "DELETE" });
@@ -190,19 +199,17 @@ export default function ProductsSettingsPage() {
                 <div className="flex-1 space-y-1">
                   <input
                     value={p.name}
-                    onChange={(e) => update(p.id, { name: e.target.value })}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v && v !== p.name) update(p.id, { name: v });
+                    onChange={(e) => {
+                      updateLocal(p.id, { name: e.target.value });
+                      debouncedSave(p.id, { name: e.target.value });
                     }}
                     className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm font-medium"
                   />
                   <input
                     value={p.description || ""}
-                    onChange={(e) => update(p.id, { description: e.target.value })}
-                    onBlur={(e) => {
-                      const v = e.target.value.trim();
-                      if (v !== (p.description || "")) update(p.id, { description: v || null });
+                    onChange={(e) => {
+                      updateLocal(p.id, { description: e.target.value });
+                      debouncedSave(p.id, { description: e.target.value || null });
                     }}
                     placeholder="Optional description"
                     className="w-full px-3 py-1.5 border border-gray-300 rounded text-sm text-gray-600"

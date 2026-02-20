@@ -12,8 +12,6 @@ interface Product {
   featureCount: number;
 }
 
-const nav: Array<{ href: string; label: string }> = [];
-
 const settingsItems = [
   { href: "/settings/evaluation-criteria", label: "Evaluation Criteria" },
   { href: "/settings/products", label: "Product Portfolio" },
@@ -152,22 +150,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
               </div>
             )}
           </div>
-
-          {/* Main Navigation */}
-          {nav.map(({ href, label }) => (
-            <Link
-              key={href}
-              href={href}
-              className={
-                "block px-3 py-2 rounded text-sm " +
-                (pathname === href || pathname.startsWith(href)
-                  ? "bg-gray-800 text-white"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800")
-              }
-            >
-              {label}
-            </Link>
-          ))}
 
           {/* Settings Section */}
           <div>

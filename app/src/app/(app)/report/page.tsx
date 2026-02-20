@@ -11,16 +11,23 @@ type ClusterWithFeatures = {
 export default function ReportPage() {
   const [clusters, setClusters] = useState<ClusterWithFeatures[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [generating, setGenerating] = useState<string | null>(null);
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/clusters")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load clusters");
+        return r.json();
+      })
       .then((clusterList: { id: string; name: string; reportSummary: string | null }[]) => {
         return Promise.all(
           clusterList.map((c) =>
-            fetch(`/api/features?clusterId=${encodeURIComponent(c.id)}`).then((r) => r.json())
+            fetch(`/api/features?clusterId=${encodeURIComponent(c.id)}`).then((r) => {
+              if (!r.ok) throw new Error(`Failed to load features for cluster ${c.name}`);
+              return r.json();
+            })
           )
         ).then((results) => {
           setClusters(
@@ -33,6 +40,7 @@ export default function ReportPage() {
           );
         });
       })
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load report data"))
       .finally(() => setLoading(false));
   }, []);
 
@@ -65,6 +73,7 @@ export default function ReportPage() {
   }
 
   if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (error) return <p className="text-red-600">{error}</p>;
 
   return (
     <div className="space-y-8">

@@ -19,12 +19,18 @@ interface ImportRecord {
 export default function ImportsPage() {
   const [imports, setImports] = useState<ImportRecord[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
   const [productFilter, setProductFilter] = useState<string>("");
 
   function load() {
+    setError("");
     fetch("/api/imports")
-      .then((r) => r.json())
+      .then((r) => {
+        if (!r.ok) throw new Error("Failed to load imports");
+        return r.json();
+      })
       .then(setImports)
+      .catch((err) => setError(err instanceof Error ? err.message : "Failed to load imports"))
       .finally(() => setLoading(false));
   }
 
@@ -41,12 +47,17 @@ export default function ImportsPage() {
     load();
   }
 
-  const uniqueProducts = Array.from(new Set(imports.map((imp) => imp.productName).filter(Boolean))) as string[];
+  const uniqueProducts = Array.from(
+    new Map(
+      imports.filter((imp) => imp.productId && imp.productName).map((imp) => [imp.productId, imp.productName])
+    ).entries()
+  ) as [string, string][];
   const filteredImports = productFilter
-    ? imports.filter((imp) => imp.productName === productFilter)
+    ? imports.filter((imp) => imp.productId === productFilter)
     : imports;
 
   if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (error) return <p className="text-red-600">{error}</p>;
 
   return (
     <div className="space-y-6">
@@ -66,8 +77,8 @@ export default function ImportsPage() {
             className="px-3 py-2 border border-gray-300 rounded text-sm"
           >
             <option value="">All products</option>
-            {uniqueProducts.map((name) => (
-              <option key={name} value={name}>
+            {uniqueProducts.map(([id, name]) => (
+              <option key={id} value={id}>
                 {name}
               </option>
             ))}
