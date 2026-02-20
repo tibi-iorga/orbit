@@ -33,10 +33,10 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
     if (isOpen) {
       fetch("/api/products")
         .then(async (r) => {
-          if (!r.ok) return [];
+          if (!r.ok) return { flat: [] };
           return r.json();
         })
-        .then((data) => setProducts(data))
+        .then((data) => setProducts(data?.flat || []))
         .catch(() => {});
     } else {
       // Reset form when modal closes
@@ -103,10 +103,10 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
     const warningsList: string[] = [];
     const emptyTitleCount = rows.filter((row) => !row[titleColumn]?.trim()).length;
     if (emptyTitleCount > 0) {
-      warningsList.push(`${emptyTitleCount} row${emptyTitleCount === 1 ? "" : "s"} will be skipped due to empty title column.`);
+      warningsList.push(`${emptyTitleCount} row${emptyTitleCount === 1 ? "" : "s"} will be skipped due to empty feedback column.`);
     }
     if (rows.length - emptyTitleCount === 0) {
-      warningsList.push("No rows will be imported. The selected title column is empty for all rows.");
+      warningsList.push("No rows will be imported. The selected feedback column is empty for all rows.");
     }
 
     setWarnings(warningsList);
@@ -151,7 +151,7 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
 
     const validRows = rows.filter((row) => row[titleColumn]?.trim());
     if (validRows.length === 0) {
-      setError("No valid rows to import. The selected title column is empty for all rows.");
+      setError("No valid rows to import. The selected feedback column is empty for all rows.");
       return;
     }
 
@@ -183,7 +183,7 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
       setNewProductName("");
       
       onClose();
-      router.push("/features");
+      router.push("/feedback");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Import failed");
     } finally {
@@ -326,7 +326,7 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Title column</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Feedback column</label>
                     <select
                       value={titleColumn}
                       onChange={(e) => setTitleColumn(e.target.value)}
@@ -338,9 +338,10 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
                         </option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 mt-1">Select the column containing feedback text</p>
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Description column (optional)</label>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Additional description column (optional)</label>
                     <select
                       value={descriptionColumn}
                       onChange={(e) => setDescriptionColumn(e.target.value)}
@@ -353,6 +354,7 @@ export function ImportModal({ isOpen, onClose }: ImportModalProps) {
                         </option>
                       ))}
                     </select>
+                    <p className="text-xs text-gray-500 mt-1">Optional: If your CSV has separate title and description columns, map the description here</p>
                   </div>
                   <div className="space-y-1">
                     <p className="text-sm text-gray-700">

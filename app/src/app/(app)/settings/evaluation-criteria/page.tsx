@@ -10,8 +10,17 @@ export default function EvaluationCriteriaPage() {
 
   function load() {
     fetch("/api/dimensions")
-      .then((r) => r.json())
+      .then(async (r) => {
+        if (!r.ok) {
+          const data = await r.json().catch(() => ({}));
+          throw new Error(data.error || `Server returned ${r.status}`);
+        }
+        return r.json();
+      })
       .then(setDimensions)
+      .catch((error) => {
+        console.error("Error loading dimensions:", error);
+      })
       .finally(() => setLoading(false));
   }
 
@@ -44,6 +53,7 @@ export default function EvaluationCriteriaPage() {
         name: "New dimension",
         type: "yesno",
         weight: 1,
+        tag: "General",
       }),
     });
     load();
@@ -60,7 +70,8 @@ export default function EvaluationCriteriaPage() {
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
-        <p className="text-sm text-gray-600">
+        <h1 className="text-xl font-semibold text-gray-900">Evaluation Criteria</h1>
+        <p className="text-sm text-gray-600 mt-1">
           Edit scoring dimensions. Each has a name, type (yes/no or 1–3 scale), and weight. Changing weights rescores all items.
         </p>
       </div>
@@ -105,6 +116,17 @@ export default function EvaluationCriteriaPage() {
                 className="w-16 px-2 py-1 border border-gray-300 rounded"
               />
             </label>
+            <select
+              value={d.tag}
+              onChange={(e) => update(d.id, { tag: e.target.value })}
+              className="px-3 py-1.5 border border-gray-300 rounded text-sm"
+            >
+              <option value="General">General</option>
+              <option value="Medical">Medical</option>
+              <option value="Ops">Ops</option>
+              <option value="Engineering">Engineering</option>
+              <option value="Bids">Bids</option>
+            </select>
             <button
               type="button"
               onClick={() => remove(d.id)}

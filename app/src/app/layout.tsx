@@ -7,7 +7,7 @@ const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
   title: "Orbit",
-  description: "Score feature requests by technical effort and change management cost.",
+  description: "Score feature opportunities by technical effort and change management cost.",
 };
 
 export default function RootLayout({
@@ -16,8 +16,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="en" className="h-full bg-white dark:bg-gray-950 scheme-light dark:scheme-dark">
+      <body className={`h-full bg-white ${inter.className}`}>
         <SessionProvider>{children}</SessionProvider>
       </body>
     </html>

@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_POSTGRES_URL_NON_POOLING")
 }
 
 model User {
@@ -15,30 +16,47 @@ model User {
 }
 
 model Product {
-  id          String    @id @default(cuid())
+  id          String         @id @default(cuid())
   name        String
   description String?
-  createdAt   DateTime  @default(now())
+  parentId    String?
+  parent      Product?       @relation("ProductHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children    Product[]      @relation("ProductHierarchy")
+  createdAt   DateTime       @default(now())
   imports     ImportRecord[]
-  features    Feature[]
+  feedbackItems FeedbackItem[]
+  opportunities Opportunity[]
 
   @@index([name])
+  @@index([parentId])
 }
 
 model ImportRecord {
-  id        String    @id @default(cuid())
-  filename  String
-  productId String?
-  product   Product?  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  createdAt DateTime  @default(now())
-  features  Feature[]
+  id            String         @id @default(cuid())
+  filename      String
+  productId     String?
+  product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now())
+  feedbackItems FeedbackItem[]
 }
 
-model Cluster {
-  id        String    @id @default(cuid())
-  name      String
-  features  Feature[]
+model Opportunity {
+  id            String         @id @default(cuid())
+  title         String
+  description   String?
+  productId     String?
+  product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
+  scores        String?        // JSON: { dimensionId: value }
+  explanation   String?        // JSON: { dimensionId: "short explanation" }
   reportSummary String?
+  horizon       String?        // "now" | "next" | "later"
+  quarter       String?        // e.g. "Q2 2025"
+  status        String         @default("draft")  // "draft" | "under_review" | "approved" | "on_roadmap" | "rejected"
+  createdAt     DateTime       @default(now())
+  feedbackItems FeedbackItem[]
+
+  @@index([productId])
+  @@index([horizon])
 }
 
 model Dimension {
@@ -47,23 +65,24 @@ model Dimension {
   type   String  // "yesno" | "scale"
   weight Float   @default(1)
   order  Int     @default(0)
+  tag    String  @default("General") // e.g. "Medical", "Ops", "Engineering", "Bids"
 }
 
-model Feature {
+model FeedbackItem {
   id          String        @id @default(cuid())
   title       String
   description String?
+  status      String        @default("new") // "new" | "reviewed" | "rejected"
   importId    String
   import      ImportRecord  @relation(fields: [importId], references: [id], onDelete: Cascade)
-  clusterId   String?
-  cluster     Cluster?      @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+  opportunityId   String?
+  opportunity     Opportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
   productId   String?
   product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
-  scores      String?       // JSON: { dimensionId: value }
-  explanation String?       // JSON: { dimensionId: "short explanation" }
+  createdAt   DateTime      @default(now())
 
-  @@index([clusterId])
+  @@index([opportunityId])
   @@index([importId])
   @@index([productId])
-  @@index([clusterId, title])
+  @@index([status])
 }

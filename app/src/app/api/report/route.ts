@@ -18,14 +18,14 @@ export async function POST(request: Request) {
   const openai = new OpenAI({ apiKey });
 
   const body = await request.json();
-  const { clusterId } = body;
-  if (!clusterId) return NextResponse.json({ error: "clusterId required" }, { status: 400 });
+  const { opportunityId } = body;
+  if (!opportunityId) return NextResponse.json({ error: "opportunityId required" }, { status: 400 });
 
-  const cluster = await prisma.cluster.findUnique({
-    where: { id: clusterId },
-    include: { features: true },
+  const opp = await prisma.opportunity.findUnique({
+    where: { id: opportunityId },
+    include: { feedbackItems: true },
   });
-  if (!cluster) return NextResponse.json({ error: "Cluster not found" }, { status: 404 });
+  if (!opp) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
 
   const dimensions = await prisma.dimension.findMany({ orderBy: { order: "asc" } });
   const dimConfig: DimensionConfig[] = dimensions.map((d) => ({
@@ -34,23 +34,20 @@ export async function POST(request: Request) {
     type: d.type as "yesno" | "scale",
     weight: d.weight,
     order: d.order,
+    tag: d.tag,
   }));
 
-  const featuresWithScores = cluster.features.map((f) => {
-    const scores = parseScores(f.scores);
-    const combined = computeCombinedScore(scores, dimConfig);
-    return { title: f.title, description: f.description, combinedScore: combined, scores };
-  });
+  const scores = parseScores(opp.scores);
+  const combined = computeCombinedScore(scores, dimConfig);
 
-  const topItems = featuresWithScores
-    .sort((a, b) => b.combinedScore - a.combinedScore)
+  const topItems = opp.feedbackItems
     .slice(0, 10)
     .map((f) => f.title);
 
-  const prompt = `Summarize the change management implications of this feature cluster in one short paragraph (3 to 5 sentences). Audience: healthcare leadership. Be concrete and avoid jargon. Do not use bullet points.
+  const prompt = `Summarize the change management implications of this feature opportunity in one short paragraph (3 to 5 sentences). Audience: healthcare leadership. Be concrete and avoid jargon. Do not use bullet points.
 
-Cluster name: ${cluster.name}
-Top features by score: ${topItems.join("; ")}
+Opportunity title: ${opp.title}
+Top feedback items: ${topItems.join("; ")}
 
 Paragraph:`;
 
@@ -62,8 +59,8 @@ Paragraph:`;
   });
 
   const summary = completion.choices[0]?.message?.content?.trim() ?? "";
-  await prisma.cluster.update({
-    where: { id: clusterId },
+  await prisma.opportunity.update({
+    where: { id: opportunityId },
     data: { reportSummary: summary },
   });
 

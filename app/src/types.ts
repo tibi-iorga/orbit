@@ -6,24 +6,37 @@ export interface Dimension {
   type: DimensionType;
   weight: number;
   order: number;
+  tag: string;
 }
 
-export interface FeatureRow {
+export type FeedbackStatus = "new" | "reviewed" | "rejected";
+
+export interface FeedbackItem {
   id: string;
   title: string;
   description: string | null;
-  clusterId: string | null;
-  clusterName: string | null;
+  status: FeedbackStatus;
+  opportunityId: string | null;
+  opportunityTitle: string | null;
+  productId: string | null;
+  productName: string | null;
+  sourceName: string | null;
+  createdAt: string;
+}
+
+export interface Opportunity {
+  id: string;
+  title: string;
+  description: string | null;
   productId: string | null;
   productName: string | null;
   scores: Record<string, number>;
   explanation: Record<string, string>;
-  combinedScore: number;
-}
-
-export interface ClusterRow {
-  id: string;
-  name: string;
-  featureCount: number;
   reportSummary: string | null;
+  horizon: "now" | "next" | "later" | null;
+  quarter: string | null;
+  status: "draft" | "under_review" | "approved" | "on_roadmap" | "rejected";
+  feedbackCount: number;
+  combinedScore: number;
+  createdAt: string;
 }

@@ -1,204 +1,74 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { signOut } from "next-auth/react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { Dialog, DialogBackdrop, DialogPanel } from "@headlessui/react";
+import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
+import { Sidebar } from "./Sidebar";
 import { ImportModal } from "./ImportModal";
 
-interface Product {
-  id: string;
-  name: string;
-  featureCount: number;
-}
-
-const settingsItems = [
-  { href: "/settings/evaluation-criteria", label: "Evaluation Criteria" },
-  { href: "/settings/products", label: "Product Portfolio" },
-  { href: "/imports", label: "Imports" },
-];
-
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const pathname = usePathname();
-  const [products, setProducts] = useState<Product[]>([]);
-  const [productsLoading, setProductsLoading] = useState(true);
-  const [currentProductId, setCurrentProductId] = useState<string | null>(null);
-  const [productsExpanded, setProductsExpanded] = useState(true);
-  const [settingsExpanded, setSettingsExpanded] = useState(pathname.startsWith("/settings"));
   const [importModalOpen, setImportModalOpen] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // Get current productId from URL
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      const updateProductId = () => {
-        const params = new URLSearchParams(window.location.search);
-        setCurrentProductId(params.get("productId"));
-      };
-      updateProductId();
-      // Listen for browser back/forward
-      window.addEventListener("popstate", updateProductId);
-      // Also check when pathname changes (covers most cases)
-      return () => window.removeEventListener("popstate", updateProductId);
-    }
-  }, [pathname]);
-
-  // Also update when products load (in case URL changed before products loaded)
-  useEffect(() => {
-    if (typeof window !== "undefined" && products.length > 0) {
-      const params = new URLSearchParams(window.location.search);
-      setCurrentProductId(params.get("productId"));
-    }
-  }, [products.length]);
-
-  // Auto-expand settings if on a settings page
-  useEffect(() => {
-    if (pathname.startsWith("/settings")) {
-      setSettingsExpanded(true);
-    }
-  }, [pathname]);
-
-  useEffect(() => {
-    fetch("/api/products")
-      .then(async (r) => {
-        if (!r.ok) return [];
-        return r.json();
-      })
-      .then((data) => {
-        setProducts(data || []);
-      })
-      .catch(() => {
-        setProducts([]);
-      })
-      .finally(() => {
-        setProductsLoading(false);
-      });
-  }, []);
+  const handleNavigate = () => {
+    setSidebarOpen(false);
+  };
 
   return (
-    <div className="flex min-h-screen bg-gray-100">
-      <aside className="w-56 flex flex-col bg-gray-900 text-gray-200">
-        <div className="p-4 border-b border-gray-800">
-          <Link href="/features" className="font-semibold text-white">
-            Orbit
-          </Link>
-        </div>
-        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-          {/* Import Button */}
-          <button
-            onClick={() => setImportModalOpen(true)}
-            className="w-full px-3 py-2 mb-2 bg-[#2563EB] text-white text-sm font-medium rounded hover:bg-[#1D4ED8] text-center transition-colors"
-          >
-            Import
-          </button>
+    <div className="h-full">
+      {/* Mobile sidebar */}
+      <Dialog open={sidebarOpen} onClose={setSidebarOpen} className="relative z-50 lg:hidden">
+        <DialogBackdrop className="fixed inset-0 bg-gray-900/80" />
 
-          {/* Products Section */}
-          <div>
-            <button
-              onClick={() => setProductsExpanded(!productsExpanded)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded text-sm text-gray-400 hover:text-white hover:bg-gray-800"
-            >
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Products
-              </span>
-              <span className="text-xs text-gray-500">
-                {productsExpanded ? "−" : "+"}
-              </span>
-            </button>
-            {productsExpanded && (
-              <div className="ml-2">
-                <Link
-                  href="/features"
-                  className={
-                    "block px-3 py-1.5 rounded text-sm " +
-                    (pathname === "/features" && !currentProductId
-                      ? "bg-gray-800 text-white"
-                      : "text-gray-400 hover:text-white hover:bg-gray-800")
-                  }
-                >
-                  ALL
-                </Link>
-                {productsLoading ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">Loading...</div>
-                ) : products.length === 0 ? (
-                  <div className="px-3 py-2 text-xs text-gray-500">No products</div>
-                ) : (
-                  products.map((product) => {
-                    const isActive = currentProductId === product.id;
-                    return (
-                      <Link
-                        key={product.id}
-                        href={`/features?productId=${encodeURIComponent(product.id)}`}
-                        className={
-                          "block px-3 py-1.5 rounded text-sm " +
-                          (isActive
-                            ? "bg-gray-800 text-white"
-                            : "text-gray-400 hover:text-white hover:bg-gray-800")
-                        }
-                      >
-                        <div className="flex items-center justify-between">
-                          <span>{product.name}</span>
-                          {product.featureCount > 0 && (
-                            <span className="text-xs text-gray-500 ml-2">
-                              {product.featureCount}
-                            </span>
-                          )}
-                        </div>
-                      </Link>
-                    );
-                  })
-                )}
-              </div>
-            )}
-          </div>
+        <div className="fixed inset-0 flex">
+          <DialogPanel className="relative mr-16 flex w-full max-w-xs flex-1">
+            <div className="absolute top-0 left-full flex w-16 justify-center pt-5">
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(false)}
+                className="-m-2.5 p-2.5"
+              >
+                <span className="sr-only">Close sidebar</span>
+                <XMarkIcon aria-hidden="true" className="size-6 text-white" />
+              </button>
+            </div>
 
-          {/* Settings Section */}
-          <div>
-            <button
-              onClick={() => setSettingsExpanded(!settingsExpanded)}
-              className="w-full flex items-center justify-between px-3 py-2 rounded text-sm text-gray-400 hover:text-white hover:bg-gray-800"
-            >
-              <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
-                Settings
-              </span>
-              <span className="text-xs text-gray-500">
-                {settingsExpanded ? "−" : "+"}
-              </span>
-            </button>
-            {settingsExpanded && (
-              <div className="ml-2">
-                {settingsItems.map(({ href, label }) => {
-                  const isActive = pathname === href;
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={
-                        "block px-3 py-1.5 rounded text-sm " +
-                        (isActive
-                          ? "bg-gray-800 text-white"
-                          : "text-gray-400 hover:text-white hover:bg-gray-800")
-                      }
-                    >
-                      {label}
-                    </Link>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </nav>
-        <div className="p-2 border-t border-gray-800">
-          <button
-            onClick={() => signOut({ callbackUrl: "/login" })}
-            className="w-full text-left px-3 py-2 rounded text-sm text-gray-400 hover:text-white hover:bg-gray-800"
-          >
-            Sign out
-          </button>
+            <div className="relative flex grow flex-col gap-y-5 overflow-y-auto bg-gray-900 px-6 pb-2 ring-1 ring-white/10">
+              <Sidebar
+                onImportClick={() => {
+                  setImportModalOpen(true);
+                  setSidebarOpen(false);
+                }}
+                onNavigate={handleNavigate}
+              />
+            </div>
+          </DialogPanel>
         </div>
-      </aside>
-      <main className="flex-1 overflow-auto p-6 bg-white min-w-0">
-        {children}
+      </Dialog>
+
+      {/* Desktop sidebar */}
+      <div className="hidden bg-gray-900 lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
+        <Sidebar onImportClick={() => setImportModalOpen(true)} />
+      </div>
+
+      {/* Mobile header */}
+      <div className="sticky top-0 z-40 flex items-center gap-x-6 bg-gray-900 px-4 py-4 shadow-sm sm:px-6 lg:hidden">
+        <button
+          type="button"
+          onClick={() => setSidebarOpen(true)}
+          className="-m-2.5 p-2.5 text-gray-400 hover:text-white lg:hidden"
+        >
+          <span className="sr-only">Open sidebar</span>
+          <Bars3Icon aria-hidden="true" className="size-6" />
+        </button>
+        <div className="flex-1 text-sm/6 font-semibold text-white">Orbit</div>
+      </div>
+
+      {/* Main content */}
+      <main className="py-10 lg:pl-72 bg-white min-h-screen flex flex-col">
+        <div className="px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">{children}</div>
       </main>
+
       <ImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)} />
     </div>
   );

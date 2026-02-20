@@ -4,11 +4,14 @@ import * as bcrypt from "bcryptjs";
 const prisma = new PrismaClient();
 
 const defaultDimensions = [
-  { name: "Requires SOP update", type: "yesno", weight: 1.2, order: 0 },
-  { name: "Touches regulated workflow", type: "yesno", weight: 1.5, order: 1 },
-  { name: "Staff roles affected (1–3 scale)", type: "scale", weight: 1, order: 2 },
-  { name: "Requires retraining", type: "yesno", weight: 1.3, order: 3 },
-  { name: "Creates or modifies operational process", type: "yesno", weight: 1.1, order: 4 },
+  { name: "Clinical risk", type: "yesno", weight: 1.5, order: 0, tag: "Medical" },
+  { name: "Requires SOP update", type: "yesno", weight: 1.2, order: 1, tag: "Medical" },
+  { name: "Retraining required", type: "yesno", weight: 1.3, order: 2, tag: "Medical" },
+  { name: "Rollout complexity", type: "scale", weight: 1.2, order: 3, tag: "Ops" },
+  { name: "Staff roles affected", type: "scale", weight: 1.0, order: 4, tag: "Ops" },
+  { name: "Affects regulated flow", type: "yesno", weight: 1.5, order: 5, tag: "Medical" },
+  { name: "Engineering effort", type: "scale", weight: 1.0, order: 6, tag: "Engineering" },
+  { name: "Deal impact", type: "yesno", weight: 1.1, order: 7, tag: "Bids" },
 ];
 
 async function main() {

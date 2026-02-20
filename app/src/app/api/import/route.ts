@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   const descCol = descriptionColumn != null ? String(descriptionColumn) : null;
   const titleCol = String(titleColumn);
 
-  const featuresToCreate = rows
+  const feedbackItemsToCreate = rows
     .map((row) => {
       const title = row[titleCol] != null ? String(row[titleCol]).trim() : "";
       if (!title) return null;
@@ -49,9 +49,9 @@ export async function POST(request: Request) {
     .filter((f): f is NonNullable<typeof f> => f !== null);
 
   const BATCH_SIZE = 500;
-  for (let i = 0; i < featuresToCreate.length; i += BATCH_SIZE) {
-    const batch = featuresToCreate.slice(i, i + BATCH_SIZE);
-    await prisma.feature.createMany({ data: batch });
+  for (let i = 0; i < feedbackItemsToCreate.length; i += BATCH_SIZE) {
+    const batch = feedbackItemsToCreate.slice(i, i + BATCH_SIZE);
+    await prisma.feedbackItem.createMany({ data: batch });
   }
 
   return NextResponse.json({ id: importRecord.id, filename: importRecord.filename });

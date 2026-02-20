@@ -4,67 +4,64 @@ import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 
 export async function GET() {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  const [imports, clusteredGroups, scoredGroups] = await Promise.all([
-    prisma.importRecord.findMany({
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const imports = await prisma.importRecord.findMany({
       include: {
-        product: { select: { id: true, name: true } },
-        _count: { select: { features: true } },
+        product: {
+          select: {
+            id: true,
+            name: true,
+          },
+        },
+        _count: {
+          select: {
+            feedbackItems: true,
+          },
+        },
       },
       orderBy: { createdAt: "desc" },
-    }),
-    prisma.feature.groupBy({
-      by: ["importId"],
-      where: { clusterId: { not: null }, importId: { not: null } },
-      _count: { id: true },
-    }),
-    prisma.feature.groupBy({
-      by: ["importId"],
-      where: { scores: { not: null }, importId: { not: null } },
-      _count: { id: true },
-    }),
-  ]);
+    });
 
-  const clusteredByImport = Object.fromEntries(
-    clusteredGroups.map((g) => [g.importId!, g._count.id])
-  );
-  const scoredByImport = Object.fromEntries(
-    scoredGroups.map((g) => [g.importId!, g._count.id])
-  );
+    const importsWithStats = await Promise.all(
+      imports.map(async (imp) => {
+        return {
+          id: imp.id,
+          filename: imp.filename,
+          productId: imp.productId,
+          productName: imp.product?.name || null,
+          createdAt: imp.createdAt,
+          feedbackCount: imp._count.feedbackItems,
+        };
+      })
+    );
 
-  const result = imports.map((imp) => {
-    const clusteredCount = clusteredByImport[imp.id] ?? 0;
-    const scoredCount = scoredByImport[imp.id] ?? 0;
-    return {
-      id: imp.id,
-      filename: imp.filename,
-      productId: imp.productId,
-      productName: imp.product?.name ?? null,
-      createdAt: imp.createdAt,
-      featureCount: imp._count.features,
-      clusteredCount,
-      unclusteredCount: imp._count.features - clusteredCount,
-      scoredCount,
-      unscoredCount: imp._count.features - scoredCount,
-    };
-  });
-
-  return NextResponse.json(result);
+    return NextResponse.json(importsWithStats);
+  } catch (error) {
+    console.error("Error fetching imports:", error);
+    return NextResponse.json({ error: "Failed to fetch imports" }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const session = await getServerSession(authOptions);
+    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get("id");
+    if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-  const { searchParams } = new URL(request.url);
-  const id = searchParams.get("id");
-  if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+    await prisma.importRecord.delete({
+      where: { id },
+    });
 
-  await prisma.importRecord.delete({
-    where: { id },
-  });
-
-  return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    if (error && typeof error === "object" && "code" in error && error.code === "P2025") {
+      return NextResponse.json({ error: "Import not found" }, { status: 404 });
+    }
+    console.error("Error deleting import:", error);
+    return NextResponse.json({ error: "Failed to delete import" }, { status: 500 });
+  }
 }

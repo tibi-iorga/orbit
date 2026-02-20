@@ -6,6 +6,7 @@ export interface DimensionConfig {
   type: DimensionType;
   weight: number;
   order: number;
+  tag: string;
 }
 
 export function parseScores(json: string | null): Record<string, number> {
