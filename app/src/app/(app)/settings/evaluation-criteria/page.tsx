@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { Dimension } from "@/types";
+import { useDebounce } from "@/lib/useDebounce";
 
 export default function EvaluationCriteriaPage() {
   const [dimensions, setDimensions] = useState<Dimension[]>([]);
@@ -18,13 +19,21 @@ export default function EvaluationCriteriaPage() {
     load();
   }, []);
 
-  async function update(id: string, patch: Partial<Dimension>) {
+  async function save(id: string, patch: Partial<Dimension>) {
     await fetch("/api/dimensions", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id, ...patch }),
     });
     load();
+  }
+
+  const debouncedSave = useDebounce(save, 500);
+
+  function updateLocal(id: string, patch: Partial<Dimension>) {
+    setDimensions((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, ...patch } : d))
+    );
   }
 
   async function add() {
@@ -63,16 +72,19 @@ export default function EvaluationCriteriaPage() {
           >
             <input
               value={d.name}
-              onChange={(e) => update(d.id, { name: e.target.value })}
-              onBlur={(e) => {
-                const v = e.target.value.trim();
-                if (v && v !== d.name) update(d.id, { name: v });
+              onChange={(e) => {
+                updateLocal(d.id, { name: e.target.value });
+                debouncedSave(d.id, { name: e.target.value });
               }}
               className="flex-1 min-w-[160px] px-3 py-1.5 border border-gray-300 rounded text-sm"
             />
             <select
               value={d.type}
-              onChange={(e) => update(d.id, { type: e.target.value as "yesno" | "scale" })}
+              onChange={(e) => {
+                const type = e.target.value as "yesno" | "scale";
+                updateLocal(d.id, { type });
+                save(d.id, { type });
+              }}
               className="px-3 py-1.5 border border-gray-300 rounded text-sm"
             >
               <option value="yesno">Yes / No</option>
@@ -85,7 +97,11 @@ export default function EvaluationCriteriaPage() {
                 min={0.1}
                 step={0.1}
                 value={d.weight}
-                onChange={(e) => update(d.id, { weight: parseFloat(e.target.value) || 1 })}
+                onChange={(e) => {
+                  const weight = parseFloat(e.target.value) || 1;
+                  updateLocal(d.id, { weight });
+                  debouncedSave(d.id, { weight });
+                }}
                 className="w-16 px-2 py-1 border border-gray-300 rounded"
               />
             </label>

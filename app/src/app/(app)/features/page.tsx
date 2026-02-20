@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback, useMemo, useRef } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { type DimensionConfig } from "@/lib/score";
+import { type DimensionConfig, computeCombinedScore } from "@/lib/score";
 import type { FeatureRow } from "@/types";
 
 const PAGE_SIZE = 50;
@@ -83,7 +83,7 @@ export default function FeaturesPage() {
         ...existing,
         scores,
         explanation,
-        combinedScore: computeCombinedScoreLocal(scores, dimensions),
+        combinedScore: computeCombinedScore(scores, dimensions),
       });
       return next;
     });
@@ -94,7 +94,7 @@ export default function FeaturesPage() {
               ...f,
               scores,
               explanation,
-              combinedScore: computeCombinedScoreLocal(scores, dimensions),
+              combinedScore: computeCombinedScore(scores, dimensions),
             }
           : f
       )
@@ -408,16 +408,6 @@ export default function FeaturesPage() {
       )}
     </div>
   );
-}
-
-function computeCombinedScoreLocal(scores: Record<string, number>, dimensions: DimensionConfig[]): number {
-  let total = 0;
-  for (const d of dimensions) {
-    const v = scores[d.id];
-    if (v === undefined) continue;
-    total += v * d.weight;
-  }
-  return Math.round(total * 10) / 10;
 }
 
 const ScoreCell = React.memo(function ScoreCell({

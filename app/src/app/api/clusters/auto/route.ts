@@ -70,23 +70,32 @@ ${itemsText}`;
     );
   }
 
+  // Create all clusters in one batch, then map AI temp IDs to real DB IDs
   const clusterIdMap: Record<string, string> = {};
-  for (const c of parsed.clusters) {
-    const created = await prisma.cluster.create({
-      data: { name: c.name },
-    });
-    clusterIdMap[c.id] = created.id;
-  }
+  await Promise.all(
+    parsed.clusters.map(async (c: { id: string; name: string }) => {
+      const created = await prisma.cluster.create({ data: { name: c.name } });
+      clusterIdMap[c.id] = created.id;
+    })
+  );
 
+  // Group assignments by real cluster ID, then run one updateMany per cluster
+  const byCluster: Record<string, string[]> = {};
   for (const a of parsed.assignments) {
     const clusterId = clusterIdMap[a.clusterId];
     if (clusterId) {
-      await prisma.feature.update({
-        where: { id: a.featureId },
-        data: { clusterId },
-      });
+      (byCluster[clusterId] ??= []).push(a.featureId);
     }
   }
+
+  await Promise.all(
+    Object.entries(byCluster).map(([clusterId, featureIds]) =>
+      prisma.feature.updateMany({
+        where: { id: { in: featureIds } },
+        data: { clusterId },
+      })
+    )
+  );
 
   const clusters = await prisma.cluster.findMany({
     include: { _count: { select: { features: true } } },
