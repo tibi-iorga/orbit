@@ -71,9 +71,7 @@ Next.js 14 (App Router), TypeScript, Tailwind CSS, Prisma (PostgreSQL), NextAuth
 ## Documentation
 
 - **[SETUP.md](./SETUP.md)** - Quick setup guide for team members
-- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Detailed Vercel deployment instructions  
-- **[CONTRIBUTING.md](./CONTRIBUTING.md)** - Development workflow and contribution guidelines
-- **[PERFORMANCE.md](./PERFORMANCE.md)** - Performance optimizations and characteristics
+- **[DEPLOYMENT.md](./DEPLOYMENT.md)** - Detailed Vercel deployment instructions
 
 ## Deployment
 
@@ -93,7 +91,6 @@ Optimized to handle 500+ feature requests efficiently with:
 - Database indexes for fast queries
 - Optimistic UI updates with debounced API calls
 - Batch processing for imports
-- See `PERFORMANCE.md` for details
 
 ## Screens
 
