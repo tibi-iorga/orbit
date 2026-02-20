@@ -54,3 +54,6 @@ mcps/
 
 # Plans
 .cursor/plans/
+
+# Planning folder (local notes)
+planning/
