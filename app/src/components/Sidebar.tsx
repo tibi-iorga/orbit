@@ -9,7 +9,6 @@ import { ChevronRightIcon } from "@heroicons/react/20/solid";
 import {
   FolderIcon,
   Cog6ToothIcon,
-  ArrowUpTrayIcon,
   InboxIcon,
 } from "@heroicons/react/24/outline";
 import { getCachedProductsRaw } from "@/lib/cache";
@@ -114,10 +113,8 @@ function ProductNode({
 }
 
 export function Sidebar({
-  onImportClick,
   onNavigate,
 }: {
-  onImportClick: () => void;
   onNavigate?: () => void;
 }) {
   const pathname = usePathname();
@@ -143,6 +140,13 @@ export function Sidebar({
   useEffect(() => {
     fetchNewCount();
   }, [fetchNewCount, pathname]);
+
+  // Refresh count immediately when a CSV or manual import completes
+  useEffect(() => {
+    const handler = () => fetchNewCount();
+    window.addEventListener("feedback-imported", handler);
+    return () => window.removeEventListener("feedback-imported", handler);
+  }, [fetchNewCount]);
 
   // Get current productId from URL query params
   useEffect(() => {
@@ -196,12 +200,6 @@ export function Sidebar({
 
   const navigation = [
     {
-      name: "Import",
-      icon: ArrowUpTrayIcon,
-      current: false,
-      onClick: onImportClick,
-    },
-    {
       name: "Feedback inbox",
       href: "/feedback",
       icon: InboxIcon,
@@ -233,6 +231,7 @@ export function Sidebar({
       children: [
         { name: "Evaluation Criteria", href: "/settings/evaluation-criteria" },
         { name: "Product Portfolio", href: "/settings/products" },
+        { name: "Auto-group feedback", href: "/settings/auto-group" },
         { name: "Imports", href: "/imports" },
       ],
     },
@@ -251,18 +250,7 @@ export function Sidebar({
             <ul role="list" className="-mx-2 space-y-1">
               {navigation.map((item) => (
                 <li key={item.name}>
-                  {item.onClick ? (
-                    <button
-                      onClick={item.onClick}
-                      className={classNames(
-                        item.current ? "bg-white/5 text-white" : "hover:bg-white/5 hover:text-white",
-                        "group flex gap-x-3 rounded-md p-2 text-sm/6 font-semibold text-gray-400 w-full",
-                      )}
-                    >
-                      <item.icon aria-hidden="true" className="size-6 shrink-0" />
-                      {item.name}
-                    </button>
-                  ) : !item.children ? (
+                  {!item.children ? (
                     <Link
                       href={item.href!}
                       onClick={onNavigate}
@@ -329,8 +317,7 @@ export function Sidebar({
                             const isActive = pathname === subItem.href;
                             return (
                               <li key={subItem.name}>
-                                <DisclosureButton
-                                  as={Link}
+                                <Link
                                   href={subItem.href}
                                   onClick={onNavigate}
                                   className={classNames(
@@ -339,7 +326,7 @@ export function Sidebar({
                                   )}
                                 >
                                   {subItem.name}
-                                </DisclosureButton>
+                                </Link>
                               </li>
                             );
                           })

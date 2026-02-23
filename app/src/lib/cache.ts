@@ -44,9 +44,10 @@ export function getFeedbackListCacheKey(params: {
   productIds: string[];
   status: string;
   page: number;
+  sortDir?: string;
 }): string {
   const sorted = [...params.productIds].sort();
-  return [sorted.join(","), params.status, params.page].join("|");
+  return [sorted.join(","), params.status, params.page, params.sortDir ?? "desc"].join("|");
 }
 
 export function getCachedFeedbackList(key: string): FeedbackListResponse | null {

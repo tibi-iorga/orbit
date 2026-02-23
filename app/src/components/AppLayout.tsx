@@ -4,10 +4,8 @@ import { useState } from "react";
 import { Dialog, DialogBackdrop, DialogPanel } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import { Sidebar } from "./Sidebar";
-import { ImportModal } from "./ImportModal";
 
 export function AppLayout({ children }: { children: React.ReactNode }) {
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const handleNavigate = () => {
@@ -35,10 +33,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
             <div className="relative flex grow flex-col gap-y-5 overflow-y-auto bg-gray-900 px-6 pb-2 ring-1 ring-white/10">
               <Sidebar
-                onImportClick={() => {
-                  setImportModalOpen(true);
-                  setSidebarOpen(false);
-                }}
                 onNavigate={handleNavigate}
               />
             </div>
@@ -48,7 +42,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
       {/* Desktop sidebar */}
       <div className="hidden bg-gray-900 lg:fixed lg:inset-y-0 lg:z-50 lg:flex lg:w-72 lg:flex-col">
-        <Sidebar onImportClick={() => setImportModalOpen(true)} />
+        <Sidebar />
       </div>
 
       {/* Mobile header */}
@@ -68,8 +62,6 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       <main className="py-10 lg:pl-72 bg-white min-h-screen flex flex-col">
         <div className="px-4 sm:px-6 lg:px-8 flex-1 flex flex-col min-h-0">{children}</div>
       </main>
-
-      <ImportModal isOpen={importModalOpen} onClose={() => setImportModalOpen(false)} />
     </div>
   );
 }
