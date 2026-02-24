@@ -52,6 +52,15 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
+    // Prevent deletion of the protected "Manual entry" record
+    const target = await prisma.importRecord.findUnique({ where: { id } });
+    if (target?.filename === "Manual entry") {
+      return NextResponse.json(
+        { error: "The Manual entry record cannot be deleted." },
+        { status: 403 }
+      );
+    }
+
     await prisma.importRecord.delete({
       where: { id },
     });

@@ -28,6 +28,15 @@ async function main() {
     });
     console.log("Seeded admin user: admin@example.com / changeme");
   }
+  const manualEntry = await prisma.importRecord.findFirst({
+    where: { filename: "Manual entry" },
+  });
+  if (!manualEntry) {
+    await prisma.importRecord.create({
+      data: { filename: "Manual entry", productId: null },
+    });
+    console.log('Seeded "Manual entry" ImportRecord.');
+  }
 }
 
 main()

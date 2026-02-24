@@ -128,10 +128,9 @@ export function OpportunityDetailPanel({
   };
 
   const handleUnlinkFeedback = async (itemId: string) => {
-    await fetch("/api/feedback", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: itemId, opportunityId: null }),
+    if (!opportunity) return;
+    await fetch(`/api/opportunities/${opportunity.id}?feedbackItemId=${itemId}`, {
+      method: "DELETE",
     });
     setFeedbackItems((prev) => prev.filter((f) => f.id !== itemId));
   };
@@ -193,6 +192,7 @@ export function OpportunityDetailPanel({
           </button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-white">
+          {/* Title + Product */}
           <div className="space-y-3">
             <div>
               {editingTitle ? (
@@ -279,36 +279,6 @@ export function OpportunityDetailPanel({
             )}
           </div>
 
-          {/* Roadmap */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Roadmap</label>
-            <select
-              value={opportunity.horizon ?? ""}
-              onChange={(e) => {
-                const v = e.target.value as "" | "now" | "next" | "later";
-                onUpdate(opportunity.id, { horizon: v || null, quarter: v ? opportunity.quarter : null });
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-            >
-              <option value="">Not on roadmap</option>
-              <option value="now">Now</option>
-              <option value="next">Next</option>
-              <option value="later">Later</option>
-            </select>
-            {opportunity.horizon && (
-              <div className="mt-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">When</label>
-                <input
-                  type="text"
-                  value={opportunity.quarter || ""}
-                  onChange={(e) => onUpdate(opportunity.id, { quarter: e.target.value || null })}
-                  placeholder="e.g. Q2 2025"
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                />
-              </div>
-            )}
-          </div>
-
           {/* Scoring: one row per dimension with dropdown */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Scoring</label>
@@ -370,17 +340,55 @@ export function OpportunityDetailPanel({
             </p>
           </div>
 
+          {/* Roadmap */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Roadmap</label>
+            <select
+              value={opportunity.horizon ?? ""}
+              onChange={(e) => {
+                const v = e.target.value as "" | "now" | "next" | "later";
+                onUpdate(opportunity.id, { horizon: v || null, quarter: v ? opportunity.quarter : null });
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+            >
+              <option value="">Not on roadmap</option>
+              <option value="now">Now</option>
+              <option value="next">Next</option>
+              <option value="later">Later</option>
+            </select>
+            {opportunity.horizon && (
+              <div className="mt-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">When</label>
+                <input
+                  type="text"
+                  value={opportunity.quarter || ""}
+                  onChange={(e) => onUpdate(opportunity.id, { quarter: e.target.value || null })}
+                  placeholder="e.g. Q2 2025"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                />
+              </div>
+            )}
+          </div>
+
           {/* Feedback Items */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Feedback Items ({feedbackItems.length})
-            </label>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">
+                Feedback Items ({feedbackItems.length})
+              </label>
+              <button
+                onClick={() => setShowLinkModal(true)}
+                className="text-xs font-medium text-gray-600 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50"
+              >
+                + Link feedback
+              </button>
+            </div>
             {loadingFeedback ? (
               <p className="text-sm text-gray-500">Loading…</p>
             ) : (
               <>
                 {feedbackItems.length === 0 ? (
-                  <p className="text-sm text-gray-500">No feedback items assigned to this opportunity.</p>
+                  <p className="text-sm text-gray-500">No feedback items linked yet.</p>
                 ) : (
                   <ul className="space-y-2">
                     {feedbackItems.map((item) => (
@@ -410,13 +418,14 @@ export function OpportunityDetailPanel({
           </div>
         </div>
 
-        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0 space-y-3">
+        {/* Footer: primary actions */}
+        <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0">
           {showMoveToRoadmap ? (
-            <div className="flex flex-col gap-2 p-3 bg-gray-50 rounded border border-gray-200">
-              <p className="text-sm font-medium text-gray-700">Move to roadmap</p>
+            <div className="space-y-3">
+              <p className="text-sm font-medium text-gray-900">Add to roadmap</p>
               <div className="flex gap-2 flex-wrap items-end">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-0.5">Now / Next / Later</label>
+                  <label className="block text-xs text-gray-500 mb-1">Horizon</label>
                   <select
                     value={moveHorizon}
                     onChange={(e) => setMoveHorizon(e.target.value as "now" | "next" | "later")}
@@ -428,62 +437,72 @@ export function OpportunityDetailPanel({
                   </select>
                 </div>
                 <div>
-                  <label className="block text-xs text-gray-500 mb-0.5">When (optional)</label>
+                  <label className="block text-xs text-gray-500 mb-1">Timeline (optional)</label>
                   <input
                     type="text"
                     value={moveWhen}
                     onChange={(e) => setMoveWhen(e.target.value)}
                     placeholder="e.g. Q2 2025"
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm w-28"
+                    className="px-3 py-1.5 border border-gray-300 rounded text-sm w-32"
+                    autoFocus
                   />
                 </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => setShowMoveToRoadmap(false)}
-                    className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleMoveToRoadmapConfirm}
-                    className="px-3 py-1.5 bg-gray-900 text-white rounded text-sm hover:bg-gray-800"
-                  >
-                    Confirm
-                  </button>
-                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleMoveToRoadmapConfirm}
+                  className="px-4 py-2 bg-gray-900 text-white rounded text-sm font-medium hover:bg-gray-800"
+                >
+                  Confirm
+                </button>
+                <button
+                  onClick={() => setShowMoveToRoadmap(false)}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
-          ) : null}
-          <div className="flex items-center justify-between gap-2 flex-wrap">
-            <div className="flex gap-2">
-              {opportunity.status !== "rejected" && (
-                <button
-                  onClick={handleArchive}
-                  className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
-                >
-                  Archive
-                </button>
-              )}
-              {opportunity.status !== "on_roadmap" && (
+          ) : (
+            <div className="flex items-center gap-2">
+              {opportunity.status !== "on_roadmap" ? (
                 <button
                   onClick={() => {
                     setMoveHorizon(opportunity.horizon || "now");
                     setMoveWhen(opportunity.quarter || "");
                     setShowMoveToRoadmap(true);
                   }}
-                  className="px-3 py-1.5 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-100"
+                  className="px-4 py-2 bg-gray-900 text-white rounded text-sm font-medium hover:bg-gray-800"
                 >
-                  Move to Roadmap
+                  Add to roadmap
+                </button>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="px-3 py-2 bg-green-50 text-green-700 rounded text-sm font-medium">
+                    ✓ On roadmap{opportunity.quarter ? ` · ${opportunity.quarter}` : ""}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setMoveHorizon(opportunity.horizon || "now");
+                      setMoveWhen(opportunity.quarter || "");
+                      setShowMoveToRoadmap(true);
+                    }}
+                    className="text-sm text-gray-500 hover:text-gray-700 underline"
+                  >
+                    Change
+                  </button>
+                </div>
+              )}
+              {opportunity.status !== "rejected" && (
+                <button
+                  onClick={handleArchive}
+                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
+                >
+                  Archive
                 </button>
               )}
             </div>
-            <button
-              onClick={() => setShowLinkModal(true)}
-              className="px-3 py-1.5 bg-gray-900 text-white rounded text-sm hover:bg-gray-800"
-            >
-              Link feedback
-            </button>
-          </div>
+          )}
         </div>
       </div>
 
@@ -491,6 +510,7 @@ export function OpportunityDetailPanel({
         isOpen={showLinkModal}
         onClose={() => setShowLinkModal(false)}
         onLink={handleLinkFeedback}
+        opportunityId={opportunity.id}
         productId={opportunity.productId}
       />
 

@@ -57,6 +57,7 @@ export function OpportunityModal({
           title: title.trim(),
           description: description.trim() || null,
           productId: productId || null,
+          feedbackItemIds: prelinkedFeedbackItems.map((item) => item.id),
         }),
       });
 
@@ -66,19 +67,6 @@ export function OpportunityModal({
       }
 
       const newOpportunity = await res.json();
-
-      // Link pre-linked feedback items
-      if (prelinkedFeedbackItems.length > 0) {
-        await Promise.all(
-          prelinkedFeedbackItems.map((item) =>
-            fetch("/api/feedback", {
-              method: "PATCH",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ id: item.id, opportunityId: newOpportunity.id }),
-            })
-          )
-        );
-      }
 
       // Fetch full opportunity with all fields
       const fullRes = await fetch(`/api/opportunities`);

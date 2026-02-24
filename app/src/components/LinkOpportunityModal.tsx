@@ -3,25 +3,32 @@
 import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { XMarkIcon } from "@heroicons/react/24/outline";
-import type { FeedbackItem } from "@/types";
 
-interface LinkFeedbackModalProps {
-  isOpen: boolean;
-  onClose: () => void;
-  onLink: (itemId: string) => void;
-  opportunityId: string | null;
-  productId: string | null;
+interface OpportunityResult {
+  id: string;
+  title: string;
+  description: string | null;
+  productName: string | null;
+  feedbackCount: number;
+  status: string;
 }
 
-export function LinkFeedbackModal({
+interface LinkOpportunityModalProps {
+  isOpen: boolean;
+  onClose: () => void;
+  onLink: (opportunityId: string) => void;
+  /** IDs of opportunities already linked to this feedback item */
+  linkedOpportunityIds: string[];
+}
+
+export function LinkOpportunityModal({
   isOpen,
   onClose,
   onLink,
-  opportunityId,
-  productId,
-}: LinkFeedbackModalProps) {
+  linkedOpportunityIds,
+}: LinkOpportunityModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
-  const [results, setResults] = useState<FeedbackItem[]>([]);
+  const [results, setResults] = useState<OpportunityResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [mounted, setMounted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,12 +46,11 @@ export function LinkFeedbackModal({
     }
   }, [isOpen]);
 
-  // Debounced search with AbortController — cancels in-flight request on new keystroke
+  // Debounced search with AbortController
   useEffect(() => {
     if (!isOpen) return;
 
     const trimmed = searchQuery.trim();
-    // Require at least 2 chars to fire; clear results for shorter queries
     if (trimmed.length > 0 && trimmed.length < 2) {
       setResults([]);
       setLoading(false);
@@ -56,13 +62,11 @@ export function LinkFeedbackModal({
       setLoading(true);
       const params = new URLSearchParams();
       if (trimmed) params.set("search", trimmed);
-      if (productId) params.set("productId", productId);
-      params.set("pageSize", "50");
-      fetch(`/api/feedback?${params}`, { signal: controller.signal })
+      fetch(`/api/opportunities?${params}`, { signal: controller.signal })
         .then(async (r) => {
           if (r.ok) {
             const data = await r.json();
-            setResults(data.feedbackItems || []);
+            setResults(Array.isArray(data) ? data : []);
           }
         })
         .catch((e) => { if (e.name !== "AbortError") console.error(e); })
@@ -73,7 +77,7 @@ export function LinkFeedbackModal({
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [searchQuery, productId, isOpen]);
+  }, [searchQuery, isOpen]);
 
   if (!isOpen || !mounted) return null;
 
@@ -88,7 +92,7 @@ export function LinkFeedbackModal({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <h2 className="text-lg font-semibold text-gray-900">Link Feedback</h2>
+          <h2 className="text-lg font-semibold text-gray-900">Link to Opportunity</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
             <XMarkIcon className="h-6 w-6" />
           </button>
@@ -99,7 +103,7 @@ export function LinkFeedbackModal({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search feedback by title or description…"
+            placeholder="Search opportunities by title or description…"
             className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
@@ -108,17 +112,15 @@ export function LinkFeedbackModal({
             <p className="text-sm text-gray-500 py-4">Searching…</p>
           ) : results.length === 0 ? (
             <p className="text-sm text-gray-500 py-4">
-              {searchQuery.trim() ? "No feedback found." : "Start typing to search feedback…"}
+              {searchQuery.trim() ? "No opportunities found." : "Start typing to search opportunities…"}
             </p>
           ) : (
             <ul className="space-y-2 mt-3">
-              {results.map((item) => {
-                const alreadyLinked = opportunityId
-                  ? item.opportunities.some((o) => o.id === opportunityId)
-                  : false;
+              {results.map((opp) => {
+                const alreadyLinked = linkedOpportunityIds.includes(opp.id);
                 return (
                   <li
-                    key={item.id}
+                    key={opp.id}
                     className={`px-3 py-2.5 border rounded-md transition-colors ${
                       alreadyLinked
                         ? "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed"
@@ -126,46 +128,38 @@ export function LinkFeedbackModal({
                     }`}
                     onClick={() => {
                       if (!alreadyLinked) {
-                        onLink(item.id);
+                        onLink(opp.id);
                         onClose();
                       }
                     }}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 line-clamp-2">{item.title}</div>
-                        {item.description && (
-                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</div>
+                        <div className="text-sm font-medium text-gray-900 line-clamp-2">{opp.title}</div>
+                        {opp.description && (
+                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{opp.description}</div>
                         )}
-                        <div className="flex items-center gap-2 mt-1">
-                          {item.productName && (
-                            <span className="text-xs text-gray-400">{item.productName}</span>
-                          )}
-                          {item.productName && item.sourceName && (
-                            <span className="text-xs text-gray-300">·</span>
-                          )}
-                          {item.sourceName && (
-                            <span className="text-xs text-gray-400">{item.sourceName}</span>
-                          )}
-                        </div>
+                        {opp.productName && (
+                          <div className="text-xs text-gray-400 mt-1">{opp.productName}</div>
+                        )}
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
                         {alreadyLinked && (
                           <span className="text-xs text-gray-400 whitespace-nowrap">Already linked</span>
                         )}
-                        {item.opportunities.length > 0 && !alreadyLinked && (
-                          <span className="text-xs text-blue-600 whitespace-nowrap">
-                            {item.opportunities.length} opportunit{item.opportunities.length === 1 ? "y" : "ies"}
-                          </span>
-                        )}
+                        <span className="text-xs text-gray-500 whitespace-nowrap">
+                          {opp.feedbackCount} feedback
+                        </span>
                         <span className={`text-xs whitespace-nowrap px-1.5 py-0.5 rounded-full ${
-                          item.status === "new"
-                            ? "bg-blue-100 text-blue-700"
-                            : item.status === "reviewed"
+                          opp.status === "on_roadmap"
                             ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
+                            : opp.status === "approved"
+                            ? "bg-blue-100 text-blue-700"
+                            : opp.status === "rejected"
+                            ? "bg-red-100 text-red-700"
+                            : "bg-gray-100 text-gray-600"
                         }`}>
-                          {item.status}
+                          {opp.status.replace("_", " ")}
                         </span>
                       </div>
                     </div>

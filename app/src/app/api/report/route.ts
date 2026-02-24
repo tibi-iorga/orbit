@@ -23,7 +23,7 @@ export async function POST(request: Request) {
 
   const opp = await prisma.opportunity.findUnique({
     where: { id: opportunityId },
-    include: { feedbackItems: true },
+    include: { feedbackLinks: { include: { feedbackItem: { select: { title: true } } }, take: 10 } },
   });
   if (!opp) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
 
@@ -41,9 +41,7 @@ export async function POST(request: Request) {
   const scores = parseScores(opp.scores);
   const combined = computeCombinedScore(scores, dimConfig);
 
-  const topItems = opp.feedbackItems
-    .slice(0, 10)
-    .map((f) => f.title);
+  const topItems = opp.feedbackLinks.map((l) => l.feedbackItem.title);
 
   const prompt = `Summarize the change management implications of this feature opportunity in one short paragraph (3 to 5 sentences). Audience: healthcare leadership. Be concrete and avoid jargon. Do not use bullet points.
 

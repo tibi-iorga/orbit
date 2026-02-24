@@ -12,12 +12,34 @@ export async function POST(request: Request) {
     if (!sourceId || !targetId) {
       return NextResponse.json({ error: "sourceId and targetId required" }, { status: 400 });
     }
-    await prisma.feedbackItem.updateMany({
+
+    // Get all feedback items linked to the source opportunity
+    const sourceLinks = await prisma.feedbackItemOpportunity.findMany({
       where: { opportunityId: sourceId },
-      data: { opportunityId: targetId },
+      select: { feedbackItemId: true },
     });
+
+    // Upsert links to target (some items may already be linked to target)
+    for (const link of sourceLinks) {
+      await prisma.feedbackItemOpportunity.upsert({
+        where: {
+          feedbackItemId_opportunityId: {
+            feedbackItemId: link.feedbackItemId,
+            opportunityId: targetId,
+          },
+        },
+        create: { feedbackItemId: link.feedbackItemId, opportunityId: targetId },
+        update: {},
+      });
+    }
+
+    // Delete source (cascade deletes its feedbackLinks)
     await prisma.opportunity.delete({ where: { id: sourceId } });
-    const opp = await prisma.opportunity.findUnique({ where: { id: targetId } });
+
+    const opp = await prisma.opportunity.findUnique({
+      where: { id: targetId },
+      include: { _count: { select: { feedbackLinks: true } } },
+    });
     return NextResponse.json(opp);
   } catch (error) {
     console.error("Error merging opportunities:", error);

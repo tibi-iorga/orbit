@@ -18,9 +18,9 @@ export interface FeedbackItem {
   id: string;
   title: string;
   description: string | null;
+  metadata: Record<string, string> | null;
   status: FeedbackStatus;
-  opportunityId: string | null;
-  opportunityTitle: string | null;
+  opportunities: { id: string; title: string }[];
   productId: string | null;
   productName: string | null;
   sourceName: string | null;

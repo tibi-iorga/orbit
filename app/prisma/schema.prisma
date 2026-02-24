@@ -41,22 +41,33 @@ model ImportRecord {
 }
 
 model Opportunity {
-  id            String         @id @default(cuid())
+  id            String                    @id @default(cuid())
   title         String
   description   String?
   productId     String?
-  product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
-  scores        String?        // JSON: { dimensionId: value }
-  explanation   String?        // JSON: { dimensionId: "short explanation" }
+  product       Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  scores        String?                   // JSON: { dimensionId: value }
+  explanation   String?                   // JSON: { dimensionId: "short explanation" }
   reportSummary String?
-  horizon       String?        // "now" | "next" | "later"
-  quarter       String?        // e.g. "Q2 2025"
-  status        String         @default("draft")  // "draft" | "under_review" | "approved" | "on_roadmap" | "rejected"
-  createdAt     DateTime       @default(now())
-  feedbackItems FeedbackItem[]
+  horizon       String?                   // "now" | "next" | "later"
+  quarter       String?                   // e.g. "Q2 2025"
+  status        String                    @default("draft")  // "draft" | "under_review" | "approved" | "on_roadmap" | "rejected"
+  createdAt     DateTime                  @default(now())
+  feedbackLinks FeedbackItemOpportunity[]
 
   @@index([productId])
   @@index([horizon])
+}
+
+model FeedbackItemOpportunity {
+  feedbackItemId  String
+  opportunityId   String
+  feedbackItem    FeedbackItem @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+  opportunity     Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  createdAt       DateTime     @default(now())
+
+  @@id([feedbackItemId, opportunityId])
+  @@index([opportunityId])
 }
 
 model Dimension {
@@ -70,20 +81,26 @@ model Dimension {
   archived  Boolean @default(false)
 }
 
-model FeedbackItem {
-  id          String        @id @default(cuid())
-  title       String
-  description String?
-  status      String        @default("new") // "new" | "reviewed" | "rejected"
-  importId    String
-  import      ImportRecord  @relation(fields: [importId], references: [id], onDelete: Cascade)
-  opportunityId   String?
-  opportunity     Opportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
-  productId   String?
-  product     Product?      @relation(fields: [productId], references: [id], onDelete: SetNull)
-  createdAt   DateTime      @default(now())
+// Generic key-value store for app-level settings (prompt, API key override, etc.)
+model AppSetting {
+  key       String   @id
+  value     String
+  updatedAt DateTime @updatedAt
+}
 
-  @@index([opportunityId])
+model FeedbackItem {
+  id               String                    @id @default(cuid())
+  title            String
+  description      String?
+  metadata         Json?                     // stores unmapped CSV columns verbatim
+  status           String                    @default("new") // "new" | "reviewed" | "rejected"
+  importId         String
+  import           ImportRecord              @relation(fields: [importId], references: [id], onDelete: Cascade)
+  productId        String?
+  product          Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                  @default(now())
+  opportunityLinks FeedbackItemOpportunity[]
+
   @@index([importId])
   @@index([productId])
   @@index([status])

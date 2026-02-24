@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { XMarkIcon, CheckCircleIcon, XCircleIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, CheckCircleIcon, XCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
 import type { FeedbackItem, FeedbackStatus } from "@/types";
+import { LinkOpportunityModal } from "./LinkOpportunityModal";
 
 interface FeedbackDetailPanelProps {
   selectedItem: FeedbackItem | null;
@@ -25,6 +26,40 @@ function StatusBadge({ status }: { status: FeedbackStatus }) {
   }
 }
 
+function OriginalDataSection({ metadata }: { metadata: Record<string, string> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="border-t border-gray-100 pt-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex items-center gap-1.5 text-sm font-medium text-gray-500 hover:text-gray-700 w-full text-left"
+      >
+        <svg
+          className={`h-3.5 w-3.5 transition-transform ${open ? "rotate-90" : ""}`}
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke="currentColor"
+          strokeWidth={2.5}
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        Original data
+      </button>
+      {open && (
+        <dl className="mt-3 space-y-2">
+          {Object.entries(metadata).map(([key, value]) => (
+            <div key={key} className="grid grid-cols-[auto_1fr] gap-x-3 text-sm">
+              <dt className="text-gray-500 whitespace-nowrap">{key}</dt>
+              <dd className="text-gray-900 break-words">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+    </div>
+  );
+}
+
 export function FeedbackDetailPanel({
   selectedItem,
   opportunities,
@@ -36,6 +71,7 @@ export function FeedbackDetailPanel({
 }: FeedbackDetailPanelProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [confirmingReject, setConfirmingReject] = useState(false);
+  const [linkOppModalOpen, setLinkOppModalOpen] = useState(false);
 
   useEffect(() => {
     if (selectedItem) {
@@ -47,6 +83,7 @@ export function FeedbackDetailPanel({
 
   useEffect(() => {
     setConfirmingReject(false);
+    setLinkOppModalOpen(false);
   }, [selectedItem?.id]);
 
   const handleClose = () => {
@@ -59,11 +96,17 @@ export function FeedbackDetailPanel({
 
   if (!selectedItem) return null;
 
-  const canMarkReviewed = selectedItem.status !== "reviewed" && !!selectedItem.opportunityId;
+  const handleLinkOpportunity = (opportunityId: string) => {
+    onAssignOpportunity(selectedItem.id, opportunityId);
+    setLinkOppModalOpen(false);
+  };
+
+  const canMarkReviewed = selectedItem.status !== "reviewed" && selectedItem.opportunities.length > 0;
   const showMarkReviewed = selectedItem.status !== "reviewed";
   const canRestore = selectedItem.status === "rejected" || selectedItem.status === "reviewed";
 
   return (
+    <>
     <div className="fixed inset-0 z-40 pointer-events-none">
       <div
         className={`fixed inset-0 bg-gray-900/50 transition-opacity duration-300 pointer-events-auto ${
@@ -126,20 +169,31 @@ export function FeedbackDetailPanel({
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Opportunity</label>
-            <select
-              value={selectedItem.opportunityId || ""}
-              onChange={(e) => onAssignOpportunity(selectedItem.id, e.target.value || null)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-            >
-              <option value="">Unassigned</option>
-              {opportunities.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.title}
-                </option>
-              ))}
-            </select>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-700">Opportunity</label>
+              <button
+                type="button"
+                onClick={() => setLinkOppModalOpen(true)}
+                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50"
+              >
+                <MagnifyingGlassIcon className="h-3.5 w-3.5" />
+                Search &amp; link
+              </button>
+            </div>
+            {selectedItem.opportunities.length > 0 ? (
+              <div className="flex flex-wrap gap-1">
+                {selectedItem.opportunities.map((o) => (
+                  <span key={o.id} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">{o.title}</span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-sm text-gray-400 italic">No opportunity linked</p>
+            )}
           </div>
+
+          {selectedItem.metadata && Object.keys(selectedItem.metadata).length > 0 && (
+            <OriginalDataSection metadata={selectedItem.metadata} />
+          )}
         </div>
 
         {/* Action footer */}
@@ -208,5 +262,13 @@ export function FeedbackDetailPanel({
         </div>
       </div>
     </div>
+
+    <LinkOpportunityModal
+      isOpen={linkOppModalOpen}
+      onClose={() => setLinkOppModalOpen(false)}
+      onLink={handleLinkOpportunity}
+      linkedOpportunityIds={selectedItem.opportunities.map((o) => o.id)}
+    />
+    </>
   );
 }

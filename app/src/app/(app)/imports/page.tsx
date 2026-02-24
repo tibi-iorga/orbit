@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { invalidateFeedbackListCache } from "@/lib/cache";
 
 interface ImportRecord {
   id: string;
@@ -44,6 +45,8 @@ export default function ImportsPage() {
     const message = `Delete import "${importRecord.filename}"? This will permanently delete ${importRecord.feedbackCount} feedback items.`;
     if (!confirm(message)) return;
     await fetch(`/api/imports?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+    invalidateFeedbackListCache();
+    window.dispatchEvent(new CustomEvent("feedback-imported"));
     load();
   }
 
@@ -59,7 +62,7 @@ export default function ImportsPage() {
       <div>
         <h1 className="text-xl font-semibold text-gray-900">Imports</h1>
         <p className="text-sm text-gray-600 mt-1">
-          View and manage all CSV imports. Delete an import to remove all its features.
+          View and manage all imports. The Manual entry record groups feedback added individually and cannot be deleted.
         </p>
       </div>
 
@@ -110,6 +113,11 @@ export default function ImportsPage() {
                 <tr key={imp.id} className="hover:bg-gray-50">
                   <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
                     {imp.filename}
+                    {imp.filename === "Manual entry" && (
+                      <span className="ml-2 inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-600">
+                        manual
+                      </span>
+                    )}
                   </td>
                   <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
                     {imp.productName || <span className="text-gray-400">Unassigned</span>}
@@ -121,13 +129,17 @@ export default function ImportsPage() {
                     {imp.feedbackCount}
                   </td>
                   <td className="relative whitespace-nowrap py-4 pl-3 pr-4 text-right text-sm font-medium sm:pr-6">
-                    <button
-                      type="button"
-                      onClick={() => remove(imp.id)}
-                      className="text-red-600 hover:text-red-900"
-                    >
-                      Delete
-                    </button>
+                    {imp.filename !== "Manual entry" ? (
+                      <button
+                        type="button"
+                        onClick={() => remove(imp.id)}
+                        className="text-red-600 hover:text-red-900"
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <span className="text-xs text-gray-400">—</span>
+                    )}
                   </td>
                 </tr>
               ))}
