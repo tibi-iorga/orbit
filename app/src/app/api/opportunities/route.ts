@@ -27,7 +27,12 @@ export async function GET(request: Request) {
     const status = searchParams.get("status");
     const search = searchParams.get("search")?.trim() || "";
 
-    let opportunities;
+    const opportunityInclude = {
+      _count: { select: { feedbackLinks: true } },
+      product: { select: { name: true } },
+    } as const;
+    type OpportunityWithRelations = Awaited<ReturnType<typeof prisma.opportunity.findMany<{ include: typeof opportunityInclude }>>>[number];
+    let opportunities: OpportunityWithRelations[];
 
     if (search.length >= 2) {
       // ── Full-text search path ─────────────────────────────────────────────
@@ -81,7 +86,7 @@ export async function GET(request: Request) {
         const orderedIds = ids.map((r) => r.id);
         const rows = await prisma.opportunity.findMany({
           where: { id: { in: orderedIds } },
-          include: { _count: { select: { feedbackLinks: true } }, product: { select: { name: true } } },
+          include: opportunityInclude,
         });
         const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
         opportunities = rows.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
@@ -100,10 +105,7 @@ export async function GET(request: Request) {
 
       opportunities = await prisma.opportunity.findMany({
         where,
-        include: {
-          _count: { select: { feedbackLinks: true } },
-          product: { select: { name: true } },
-        },
+        include: opportunityInclude,
         orderBy: { createdAt: "desc" },
       });
     }
