@@ -182,7 +182,8 @@ export async function GET(request: Request) {
       allProductIds.push(pid, ...(await getAllDescendantProductIds(pid)));
     }
 
-    let feedbackItems;
+    type FeedbackItemWithRelations = Awaited<ReturnType<typeof prisma.feedbackItem.findMany<{ include: typeof feedbackInclude }>>>[number];
+    let feedbackItems: FeedbackItemWithRelations[];
     let totalCount: number;
 
     if (search.length >= 2) {

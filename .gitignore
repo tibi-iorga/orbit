@@ -58,3 +58,7 @@ mcps/
 
 # Planning folder (local notes)
 planning/
+
+# Claude Code instructions (local only)
+CLAUDE.md
+.claude/
