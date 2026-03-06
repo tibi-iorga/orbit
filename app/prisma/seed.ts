@@ -1,4 +1,4 @@
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient, MembershipRole } from "@prisma/client";
 import * as bcrypt from "bcryptjs";
 
 const prisma = new PrismaClient();
@@ -14,29 +14,74 @@ const defaultDimensions = [
   { name: "Deal impact", type: "yesno", weight: 1.1, order: 7, tag: "Bids" },
 ];
 
+function slugify(input: string): string {
+  return input
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/(^-|-$)/g, "");
+}
+
 async function main() {
-  const dimCount = await prisma.dimension.count();
+  const bootstrapOrgName = process.env.BOOTSTRAP_ORG_NAME || "Cera Care";
+  const bootstrapOrgSlug = process.env.BOOTSTRAP_ORG_SLUG || slugify(bootstrapOrgName) || "default-org";
+  const bootstrapOwnerEmail = (process.env.BOOTSTRAP_OWNER_EMAIL || "tibi.iorga@ceracare.co.uk").toLowerCase();
+
+  const organization = await prisma.organization.upsert({
+    where: { slug: bootstrapOrgSlug },
+    update: { name: bootstrapOrgName },
+    create: { name: bootstrapOrgName, slug: bootstrapOrgSlug },
+  });
+
+  const owner = await prisma.user.upsert({
+    where: { email: bootstrapOwnerEmail },
+    update: {},
+    create: {
+      email: bootstrapOwnerEmail,
+      passwordHash: await bcrypt.hash("changeme", 10),
+      name: bootstrapOwnerEmail,
+    },
+  });
+
+  await prisma.membership.upsert({
+    where: {
+      userId_organizationId: {
+        userId: owner.id,
+        organizationId: organization.id,
+      },
+    },
+    update: { role: MembershipRole.owner },
+    create: {
+      userId: owner.id,
+      organizationId: organization.id,
+      role: MembershipRole.owner,
+    },
+  });
+
+  const dimCount = await prisma.dimension.count({
+    where: { organizationId: organization.id },
+  });
+
   if (dimCount === 0) {
-    await prisma.dimension.createMany({ data: defaultDimensions });
+    await prisma.dimension.createMany({
+      data: defaultDimensions.map((d) => ({ ...d, organizationId: organization.id })),
+    });
     console.log("Seeded default scoring dimensions.");
   }
-  const userCount = await prisma.user.count();
-  if (userCount === 0) {
-    const hash = await bcrypt.hash("changeme", 10);
-    await prisma.user.create({
-      data: { email: "admin@example.com", passwordHash: hash },
-    });
-    console.log("Seeded admin user: admin@example.com / changeme");
-  }
+
   const manualEntry = await prisma.importRecord.findFirst({
-    where: { filename: "Manual entry" },
+    where: { organizationId: organization.id, filename: "Manual entry" },
   });
+
   if (!manualEntry) {
     await prisma.importRecord.create({
-      data: { filename: "Manual entry", productId: null },
+      data: { filename: "Manual entry", productId: null, organizationId: organization.id },
     });
     console.log('Seeded "Manual entry" ImportRecord.');
   }
+
+  console.log(`Bootstrap owner: ${bootstrapOwnerEmail}`);
+  console.log(`Bootstrap organization: ${bootstrapOrgName} (${bootstrapOrgSlug})`);
 }
 
 main()

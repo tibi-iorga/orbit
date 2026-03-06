@@ -9,6 +9,6 @@ export default async function AppGroupLayout({
   children: React.ReactNode;
 }) {
   const session = await getServerSession(authOptions);
-  if (!session) redirect("/login");
+  if (!session?.user?.organizationId) redirect("/login");
   return <AppLayout>{children}</AppLayout>;
 }

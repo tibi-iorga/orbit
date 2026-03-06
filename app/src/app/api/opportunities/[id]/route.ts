@@ -1,21 +1,18 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseScores, computeCombinedScore, type DimensionConfig } from "@/lib/score";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
 
-export async function GET(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const { id } = await params;
-    const opportunity = await prisma.opportunity.findUnique({
-      where: { id },
+    const opportunity = await prisma.opportunity.findFirst({
+      where: { id, organizationId: ctx.organizationId },
       include: {
-        _count: { select: { feedbackLinks: true } },
+        _count: { select: { ideaLinks: true } },
         product: { select: { name: true } },
       },
     });
@@ -24,7 +21,11 @@ export async function GET(
       return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
     }
 
-    const dimensions = await prisma.dimension.findMany({ orderBy: { order: "asc" } });
+    const dimensions = await prisma.dimension.findMany({
+      where: { organizationId: ctx.organizationId, archived: false, name: { not: "" } },
+      orderBy: { order: "asc" },
+    });
+
     const dimConfig: DimensionConfig[] = dimensions.map((d) => ({
       id: d.id,
       name: d.name,
@@ -40,7 +41,9 @@ export async function GET(
     let explanation: Record<string, string> = {};
     try {
       if (opportunity.explanation) explanation = JSON.parse(opportunity.explanation);
-    } catch {}
+    } catch {
+      explanation = {};
+    }
 
     return NextResponse.json({
       id: opportunity.id,
@@ -53,8 +56,8 @@ export async function GET(
       reportSummary: opportunity.reportSummary,
       horizon: opportunity.horizon as "now" | "next" | "later" | null,
       quarter: opportunity.quarter,
-      status: opportunity.status as "draft" | "under_review" | "approved" | "on_roadmap" | "rejected",
-      feedbackCount: opportunity._count.feedbackLinks,
+      status: opportunity.status as "not_on_roadmap" | "on_roadmap" | "archived",
+      feedbackCount: opportunity._count.ideaLinks,
       combinedScore,
       createdAt: opportunity.createdAt.toISOString(),
     });
@@ -64,30 +67,40 @@ export async function GET(
   }
 }
 
-// Targeted unlink: DELETE /api/opportunities/[id]?feedbackItemId=xxx
-export async function DELETE(
-  request: Request,
-  { params }: { params: Promise<{ id: string }> }
-) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+export async function DELETE(request: Request, { params }: { params: Promise<{ id: string }> }) {
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const { id } = await params;
     const { searchParams } = new URL(request.url);
     const feedbackItemId = searchParams.get("feedbackItemId");
     if (!feedbackItemId) return NextResponse.json({ error: "feedbackItemId required" }, { status: 400 });
 
-    await prisma.feedbackItemOpportunity.delete({
-      where: { feedbackItemId_opportunityId: { feedbackItemId, opportunityId: id } },
+    // Find idea-opportunity links for this feedback item + opportunity
+    const ideaLinks = await prisma.ideaOpportunity.findMany({
+      where: {
+        opportunityId: id,
+        idea: { feedbackItemId, organizationId: ctx.organizationId },
+      },
+      select: { ideaId: true },
+    });
+    if (ideaLinks.length === 0) return NextResponse.json({ error: "Link not found" }, { status: 404 });
+
+    await prisma.ideaOpportunity.deleteMany({
+      where: { opportunityId: id, ideaId: { in: ideaLinks.map((l) => l.ideaId) } },
     });
 
-    // If item has no more opportunity links, revert status to "new"
-    const remaining = await prisma.feedbackItemOpportunity.count({ where: { feedbackItemId } });
+    const remaining = await prisma.ideaOpportunity.count({
+      where: { idea: { feedbackItemId, organizationId: ctx.organizationId } },
+    });
+
     if (remaining === 0) {
-      await prisma.feedbackItem.update({
-        where: { id: feedbackItemId, status: "reviewed" },
+      await prisma.feedbackItem.updateMany({
+        where: { id: feedbackItemId, status: "reviewed", organizationId: ctx.organizationId },
         data: { status: "new" },
-      }).catch(() => {}); // ignore if not reviewed
+      });
     }
 
     return NextResponse.json({ ok: true });

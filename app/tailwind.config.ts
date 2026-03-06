@@ -9,45 +9,38 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
-        primary: {
-          50: "#EFF6FF",
-          100: "#DBEAFE",
-          200: "#BFDBFE",
-          300: "#93C5FD",
-          400: "#60A5FA",
-          500: "#3B82F6",
-          600: "#2563EB",
-          700: "#1D4ED8",
-          800: "#1E40AF",
-          900: "#1E3A8A",
+        // ── Semantic tokens — driven by CSS custom properties in globals.css ──
+        // To retheme: change the RGB values in :root, these classes update automatically.
+        // Supports opacity: bg-brand/50, text-content-muted/80, etc.
+        brand: {
+          DEFAULT: "rgb(var(--color-brand) / <alpha-value>)",
+          hover:   "rgb(var(--color-brand-hover) / <alpha-value>)",
+        },
+        surface: {
+          DEFAULT: "rgb(var(--color-surface) / <alpha-value>)",
+          muted:   "rgb(var(--color-surface-muted) / <alpha-value>)",
+          subtle:  "rgb(var(--color-surface-subtle) / <alpha-value>)",
+        },
+        border: {
+          DEFAULT: "rgb(var(--color-border) / <alpha-value>)",
+          strong:  "rgb(var(--color-border-strong) / <alpha-value>)",
+        },
+        content: {
+          DEFAULT: "rgb(var(--color-content) / <alpha-value>)",
+          muted:   "rgb(var(--color-content-muted) / <alpha-value>)",
+          subtle:  "rgb(var(--color-content-subtle) / <alpha-value>)",
         },
         success: {
-          50: "#F0FDF4",
-          100: "#DCFCE7",
-          500: "#22C55E",
-          600: "#16A34A",
-          700: "#15803D",
-        },
-        error: {
-          50: "#FEF2F2",
-          100: "#FEE2E2",
-          500: "#EF4444",
-          600: "#DC2626",
-          700: "#B91C1C",
+          DEFAULT: "rgb(var(--color-success) / <alpha-value>)",
+          bg:      "rgb(var(--color-success-bg) / <alpha-value>)",
         },
         warning: {
-          50: "#FFFBEB",
-          100: "#FEF3C7",
-          500: "#F59E0B",
-          600: "#D97706",
-          700: "#B45309",
+          DEFAULT: "rgb(var(--color-warning) / <alpha-value>)",
+          bg:      "rgb(var(--color-warning-bg) / <alpha-value>)",
         },
-        info: {
-          50: "#ECFEFF",
-          100: "#CFFAFE",
-          500: "#06B6D4",
-          600: "#0891B2",
-          700: "#0E7490",
+        danger: {
+          DEFAULT: "rgb(var(--color-danger) / <alpha-value>)",
+          bg:      "rgb(var(--color-danger-bg) / <alpha-value>)",
         },
       },
     },

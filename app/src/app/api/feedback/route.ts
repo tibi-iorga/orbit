@@ -1,26 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
+import { enqueueFeedbackProcessing } from "@/lib/feedback-processor";
 
-async function getAllDescendantProductIds(parentId: string): Promise<string[]> {
-  const descendants: string[] = [];
-  const queue: string[] = [parentId];
-
-  while (queue.length > 0) {
-    const currentId = queue.shift()!;
-    const children = await prisma.product.findMany({
-      where: { parentId: currentId },
-      select: { id: true },
-    });
-    for (const child of children) {
-      descendants.push(child.id);
-      queue.push(child.id);
-    }
-  }
-
-  return descendants;
-}
 
 function formatFeedbackItem(item: {
   id: string;
@@ -28,21 +10,35 @@ function formatFeedbackItem(item: {
   description: string | null;
   metadata: unknown;
   status: string;
+  processingStatus: string;
+  processedSummary: string | null;
   productId: string | null;
   createdAt: Date;
   product: { name: string } | null;
   import: { filename: string } | null;
-  opportunityLinks: { opportunity: { id: string; title: string } }[];
+  ideas: { text: string; opportunityLinks: { opportunity: { id: string; title: string } }[] }[];
 }) {
+  const allOpportunities = item.ideas.flatMap((idea) =>
+    idea.opportunityLinks.map((l) => ({ id: l.opportunity.id, title: l.opportunity.title }))
+  );
+  const uniqueOpportunities = Array.from(new Map(allOpportunities.map((o) => [o.id, o])).values());
+
   return {
     id: item.id,
     title: item.title,
     description: item.description,
-    metadata: (item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata))
+    metadata: item.metadata && typeof item.metadata === "object" && !Array.isArray(item.metadata)
       ? (item.metadata as Record<string, string>)
       : null,
     status: item.status,
-    opportunities: item.opportunityLinks.map((l) => ({ id: l.opportunity.id, title: l.opportunity.title })),
+    processingStatus: item.processingStatus,
+    feedbackInsights: {
+      chunks: item.processedSummary ? [item.processedSummary] : [],
+      signals: [],
+      proposals: [],
+    },
+    ideas: item.ideas.map((i) => i.text),
+    opportunities: uniqueOpportunities,
     productId: item.productId,
     productName: item.product?.name ?? null,
     sourceName: item.import?.filename ?? null,
@@ -52,36 +48,27 @@ function formatFeedbackItem(item: {
 
 const feedbackInclude = {
   product: { select: { name: true } },
-  opportunityLinks: { include: { opportunity: { select: { id: true, title: true } } } },
+  ideas: {
+    select: {
+      text: true,
+      opportunityLinks: { select: { opportunity: { select: { id: true, title: true } } } },
+    },
+  },
   import: { select: { filename: true } },
 } as const;
 
-
-/**
- * Full-text search via tsvector index.
- * Returns IDs ranked by relevance so we can re-fetch with full relations,
- * or falls back to trigram ILIKE for very short queries (< 3 chars aren't
- * valid for tsquery but work fine with ILIKE + trgm index).
- */
 async function ftsSearch(params: {
+  organizationId: string;
   search: string;
   status: string | null;
-  productIds: string[];
-  includeUnassignedProduct: boolean;
-  opportunityId: string | null;
   sortDir: "asc" | "desc";
   skip: number;
   take: number;
 }): Promise<{ ids: string[]; total: number }> {
-  const { search, status, productIds, includeUnassignedProduct, opportunityId, sortDir, skip, take } = params;
+  const { organizationId, search, status, sortDir, skip, take } = params;
 
-  // IMPORTANT: Prisma's tagged-template $queryRaw`` cannot nest Prisma.sql fragments that
-  // contain their own parameters — it breaks the $1/$2/… numbering.
-  // The correct approach is to build the entire query as Prisma.sql and call
-  // prisma.$queryRaw(fragment) as a regular function (not tagged template).
   const { Prisma } = await import("@prisma/client");
 
-  // Check once whether the FTS column exists (migration may not have been applied yet)
   const colCheck = await prisma.$queryRaw<{ exists: boolean }[]>(
     Prisma.sql`
       SELECT EXISTS (
@@ -92,37 +79,22 @@ async function ftsSearch(params: {
   );
   const hasFtsColumn = colCheck[0]?.exists ?? false;
 
-  const conditions: ReturnType<typeof Prisma.sql>[] = [];
+  const conditions: ReturnType<typeof Prisma.sql>[] = [Prisma.sql`f."organizationId" = ${organizationId}`];
 
   if (hasFtsColumn) {
     conditions.push(Prisma.sql`f.search_vector @@ plainto_tsquery('english', ${search})`);
   } else {
-    // Fallback: ILIKE on title + description (uses trgm index if available, otherwise seq scan)
     const like = `%${search}%`;
     conditions.push(Prisma.sql`(f.title ILIKE ${like} OR f.description ILIKE ${like})`);
   }
 
-  if (status) {
+  if (status === "active") {
+    conditions.push(Prisma.sql`f.status != 'rejected'`);
+  } else if (status) {
     conditions.push(Prisma.sql`f.status = ${status}`);
   }
 
-  if (productIds.length > 0 && includeUnassignedProduct) {
-    conditions.push(Prisma.sql`(f."productId" = ANY(${productIds}::text[]) OR f."productId" IS NULL)`);
-  } else if (productIds.length > 0) {
-    conditions.push(Prisma.sql`f."productId" = ANY(${productIds}::text[])`);
-  } else if (includeUnassignedProduct) {
-    conditions.push(Prisma.sql`f."productId" IS NULL`);
-  }
-
-  if (opportunityId === "__unassigned__") {
-    conditions.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM "FeedbackItemOpportunity" fio WHERE fio."feedbackItemId" = f.id)`);
-  } else if (opportunityId) {
-    conditions.push(Prisma.sql`EXISTS (SELECT 1 FROM "FeedbackItemOpportunity" fio WHERE fio."feedbackItemId" = f.id AND fio."opportunityId" = ${opportunityId})`);
-  }
-
   const whereClause = Prisma.sql`WHERE ${Prisma.join(conditions, " AND ")}`;
-
-  // Build full queries as Prisma.sql objects, then call $queryRaw(sql) — NOT as tagged template
   const dateOrder = sortDir === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
 
   const rankQuery = hasFtsColumn
@@ -161,12 +133,11 @@ async function ftsSearch(params: {
 
 export async function GET(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    enqueueFeedbackProcessing(ctx.organizationId);
 
     const { searchParams } = new URL(request.url);
-    const productIds = searchParams.getAll("productId");
-    const opportunityId = searchParams.get("opportunityId");
     const status = searchParams.get("status");
     const search = searchParams.get("search")?.trim() || "";
     const page = parseInt(searchParams.get("page") || "1", 10);
@@ -174,26 +145,17 @@ export async function GET(request: Request) {
     const skip = (page - 1) * pageSize;
     const sortDir: "asc" | "desc" = searchParams.get("sortDir") === "asc" ? "asc" : "desc";
 
-    // Resolve product hierarchy
-    const hasUnassigned = productIds.includes("__unassigned__");
-    const regularProductIds = productIds.filter((id) => id !== "__unassigned__");
-    let allProductIds: string[] = [];
-    for (const pid of regularProductIds) {
-      allProductIds.push(pid, ...(await getAllDescendantProductIds(pid)));
-    }
-
-    type FeedbackItemWithRelations = Awaited<ReturnType<typeof prisma.feedbackItem.findMany<{ include: typeof feedbackInclude }>>>[number];
+    type FeedbackItemWithRelations = Awaited<
+      ReturnType<typeof prisma.feedbackItem.findMany<{ include: typeof feedbackInclude }>>
+    >[number];
     let feedbackItems: FeedbackItemWithRelations[];
     let totalCount: number;
 
     if (search.length >= 2) {
-      // ── Full-text search path (uses tsvector index) ───────────────────────
       const { ids, total } = await ftsSearch({
+        organizationId: ctx.organizationId,
         search,
         status: status || null,
-        productIds: allProductIds,
-        includeUnassignedProduct: hasUnassigned,
-        opportunityId: opportunityId || null,
         sortDir,
         skip,
         take: pageSize,
@@ -204,118 +166,40 @@ export async function GET(request: Request) {
       if (ids.length === 0) {
         feedbackItems = [];
       } else {
-        // Fetch full rows with relations, preserving rank order
         const rows = await prisma.feedbackItem.findMany({
-          where: { id: { in: ids } },
+          where: { id: { in: ids }, organizationId: ctx.organizationId },
           include: feedbackInclude,
         });
-        // Re-sort to match rank order returned by FTS
         const orderMap = new Map(ids.map((id, i) => [id, i]));
         feedbackItems = rows.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
       }
     } else {
-      // ── Normal Prisma path (no search) ────────────────────────────────────
-      const where: {
-        productId?: string | { in: string[] } | null;
-        status?: string;
-        opportunityLinks?: { some: { opportunityId: string } } | { none: Record<string, never> };
-      } = {};
+      const where: import("@prisma/client").Prisma.FeedbackItemWhereInput = {
+        organizationId: ctx.organizationId,
+      };
 
-      if (status) where.status = status;
-
-      if (allProductIds.length > 0 && hasUnassigned) {
-        // needsCombinedQuery — handled below
-      } else if (allProductIds.length > 0) {
-        where.productId = { in: allProductIds };
-      } else if (hasUnassigned) {
-        where.productId = null;
+      if (status === "active") {
+        where.status = { not: "rejected" };
+      } else if (status) {
+        where.status = status;
       }
 
-      if (opportunityId === "__unassigned__") {
-        where.opportunityLinks = { none: {} };
-      } else if (opportunityId) {
-        where.opportunityLinks = { some: { opportunityId } };
-      }
-
-      const needsCombinedQuery = allProductIds.length > 0 && hasUnassigned;
-
-      if (needsCombinedQuery) {
-        const opportunityWhere = where.opportunityLinks !== undefined ? { opportunityLinks: where.opportunityLinks } : {};
-        const statusWhere = status ? { status } : {};
-        const [assignedItems, unassignedItems, assignedCount, unassignedCount] = await Promise.all([
-          prisma.feedbackItem.findMany({
-            where: { ...statusWhere, ...opportunityWhere, productId: { in: allProductIds } },
-            include: feedbackInclude,
-            orderBy: { createdAt: sortDir },
-          }),
-          prisma.feedbackItem.findMany({
-            where: { ...statusWhere, ...opportunityWhere, productId: null },
-            include: feedbackInclude,
-            orderBy: { createdAt: sortDir },
-          }),
-          prisma.feedbackItem.count({ where: { ...statusWhere, ...opportunityWhere, productId: { in: allProductIds } } }),
-          prisma.feedbackItem.count({ where: { ...statusWhere, ...opportunityWhere, productId: null } }),
-        ]);
-
-        const combined = [...assignedItems, ...unassignedItems].sort(
-          (a, b) => sortDir === "desc"
-            ? b.createdAt.getTime() - a.createdAt.getTime()
-            : a.createdAt.getTime() - b.createdAt.getTime()
-        );
-        totalCount = assignedCount + unassignedCount;
-        feedbackItems = combined.slice(skip, skip + pageSize);
-      } else {
-        const [items, count] = await Promise.all([
-          prisma.feedbackItem.findMany({
-            where,
-            include: feedbackInclude,
-            orderBy: { createdAt: sortDir },
-            skip,
-            take: pageSize,
-          }),
-          prisma.feedbackItem.count({ where }),
-        ]);
-        feedbackItems = items;
-        totalCount = count;
-      }
+      const [items, count] = await Promise.all([
+        prisma.feedbackItem.findMany({
+          where,
+          include: feedbackInclude,
+          orderBy: { createdAt: sortDir },
+          skip,
+          take: pageSize,
+        }),
+        prisma.feedbackItem.count({ where }),
+      ]);
+      feedbackItems = items;
+      totalCount = count;
     }
-
-    const [totalUnassigned, newCount] = await Promise.all([
-      prisma.feedbackItem.count({ where: { opportunityLinks: { none: {} } } }),
-      prisma.feedbackItem.count({ where: { status: "new" } }),
-    ]);
-
-    const products = await prisma.product.findMany({
-      include: { _count: { select: { feedbackItems: true } } },
-      orderBy: { name: "asc" },
-    });
-
-    const productsWithAggregatedCounts = await Promise.all(
-      products.map(async (p) => {
-        const descendantIds = await getAllDescendantProductIds(p.id);
-        const allIds = [p.id, ...descendantIds];
-        const aggregatedFeedbackCount = await prisma.feedbackItem.count({
-          where: { productId: { in: allIds } },
-        });
-        return { id: p.id, name: p.name, parentId: p.parentId, feedbackCount: aggregatedFeedbackCount };
-      })
-    );
-
-    const opportunities = await prisma.opportunity.findMany({
-      include: { _count: { select: { feedbackLinks: true } } },
-      orderBy: { title: "asc" },
-    });
 
     return NextResponse.json({
       feedbackItems: feedbackItems.map(formatFeedbackItem),
-      opportunities: opportunities.map((r) => ({
-        id: r.id,
-        title: r.title,
-        feedbackCount: r._count.feedbackLinks,
-      })),
-      products: productsWithAggregatedCounts,
-      totalUnassigned,
-      newCount,
       pagination: {
         page,
         pageSize,
@@ -331,13 +215,21 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = await request.json();
     const { id, ids, opportunityId, title, description, productId, status } = body;
 
-    // Bulk update
     if (ids && Array.isArray(ids) && ids.length > 0) {
+      const scopedItems = await prisma.feedbackItem.findMany({
+        where: { id: { in: ids }, organizationId: ctx.organizationId },
+        select: { id: true },
+      });
+      const scopedIds = scopedItems.map((item) => item.id);
+      if (scopedIds.length === 0) return NextResponse.json({ updated: 0 });
+
       const bulkData: Record<string, unknown> = {};
 
       if (status !== undefined) {
@@ -351,40 +243,67 @@ export async function PATCH(request: Request) {
       if (opportunityId !== undefined) {
         const resolvedOpportunityId = opportunityId === null || opportunityId === "" ? null : opportunityId;
         if (resolvedOpportunityId) {
-          // Link all selected items to the opportunity
-          await prisma.$transaction(
-            ids.map((itemId: string) =>
-              prisma.feedbackItemOpportunity.upsert({
-                where: { feedbackItemId_opportunityId: { feedbackItemId: itemId, opportunityId: resolvedOpportunityId } },
-                create: { feedbackItemId: itemId, opportunityId: resolvedOpportunityId },
-                update: {},
-              })
-            )
-          );
+          const opportunity = await prisma.opportunity.findFirst({
+            where: { id: resolvedOpportunityId, organizationId: ctx.organizationId },
+            select: { id: true },
+          });
+          if (!opportunity) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
+
+          for (const itemId of scopedIds) {
+            const existingIdea = await prisma.idea.findFirst({
+              where: { feedbackItemId: itemId },
+              orderBy: { index: "asc" },
+              select: { id: true },
+            });
+            let ideaId = existingIdea?.id;
+            if (!ideaId) {
+              const item = await prisma.feedbackItem.findFirst({ where: { id: itemId }, select: { title: true, description: true } });
+              const newIdea = await prisma.idea.create({
+                data: { organizationId: ctx.organizationId, feedbackItemId: itemId, text: `${item?.title ?? ""}${item?.description ? ` - ${item.description}` : ""}`, source: "manual", index: 0 },
+              });
+              ideaId = newIdea.id;
+            }
+            await prisma.ideaOpportunity.upsert({
+              where: { ideaId_opportunityId: { ideaId, opportunityId: resolvedOpportunityId } },
+              create: { ideaId, opportunityId: resolvedOpportunityId, organizationId: ctx.organizationId },
+              update: {},
+            });
+          }
+
           await prisma.feedbackItem.updateMany({
-            where: { id: { in: ids } },
+            where: { id: { in: scopedIds }, organizationId: ctx.organizationId },
             data: { status: "reviewed" },
           });
         }
-        return NextResponse.json({ updated: ids.length });
+        return NextResponse.json({ updated: scopedIds.length });
       }
 
       await prisma.feedbackItem.updateMany({
-        where: { id: { in: ids } },
+        where: { id: { in: scopedIds }, organizationId: ctx.organizationId },
         data: bulkData,
       });
 
-      return NextResponse.json({ updated: ids.length });
+      return NextResponse.json({ updated: scopedIds.length });
     }
 
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
+    const existing = await prisma.feedbackItem.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true, status: true } });
+    if (!existing) return NextResponse.json({ error: "Feedback item not found" }, { status: 404 });
+
     const data: Record<string, unknown> = {};
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description === null || description === "" ? null : description;
+
     if (productId !== undefined) {
-      data.productId = productId === null || productId === "" ? null : productId;
+      const resolvedProductId = productId === null || productId === "" ? null : productId;
+      if (resolvedProductId) {
+        const product = await prisma.product.findFirst({ where: { id: resolvedProductId, organizationId: ctx.organizationId }, select: { id: true } });
+        if (!product) return NextResponse.json({ error: "Product not found" }, { status: 404 });
+      }
+      data.productId = resolvedProductId;
     }
+
     if (status !== undefined) {
       const validStatuses = ["new", "reviewed", "rejected"];
       if (!validStatuses.includes(status)) {
@@ -393,22 +312,39 @@ export async function PATCH(request: Request) {
       data.status = status;
     }
 
-    // Handle opportunityId as link/unlink in join table
     if (opportunityId !== undefined) {
       const resolvedOpportunityId = opportunityId === null || opportunityId === "" ? null : opportunityId;
       if (resolvedOpportunityId) {
-        await prisma.feedbackItemOpportunity.upsert({
-          where: { feedbackItemId_opportunityId: { feedbackItemId: id, opportunityId: resolvedOpportunityId } },
-          create: { feedbackItemId: id, opportunityId: resolvedOpportunityId },
+        const opportunity = await prisma.opportunity.findFirst({
+          where: { id: resolvedOpportunityId, organizationId: ctx.organizationId },
+          select: { id: true },
+        });
+        if (!opportunity) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
+
+        const existingIdea = await prisma.idea.findFirst({
+          where: { feedbackItemId: id },
+          orderBy: { index: "asc" },
+          select: { id: true },
+        });
+        let ideaId = existingIdea?.id;
+        if (!ideaId) {
+          const feedbackForIdea = await prisma.feedbackItem.findFirst({ where: { id }, select: { title: true, description: true } });
+          const newIdea = await prisma.idea.create({
+            data: { organizationId: ctx.organizationId, feedbackItemId: id, text: `${feedbackForIdea?.title ?? ""}${feedbackForIdea?.description ? ` - ${feedbackForIdea.description}` : ""}`, source: "manual", index: 0 },
+          });
+          ideaId = newIdea.id;
+        }
+        await prisma.ideaOpportunity.upsert({
+          where: { ideaId_opportunityId: { ideaId, opportunityId: resolvedOpportunityId } },
+          create: { ideaId, opportunityId: resolvedOpportunityId, organizationId: ctx.organizationId },
           update: {},
         });
         data.status = "reviewed";
       } else {
-        // null means unlink from ALL opportunities (legacy behaviour for single-unlink)
-        // This path is only hit from old single-item unlink; we now use DELETE for targeted unlink
-        await prisma.feedbackItemOpportunity.deleteMany({ where: { feedbackItemId: id } });
-        const existing = await prisma.feedbackItem.findUnique({ where: { id }, select: { status: true } });
-        if (existing?.status === "reviewed") data.status = "new";
+        await prisma.ideaOpportunity.deleteMany({
+          where: { idea: { feedbackItemId: id }, organizationId: ctx.organizationId },
+        });
+        if (existing.status === "reviewed") data.status = "new";
       }
     }
 

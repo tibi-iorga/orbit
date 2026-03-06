@@ -1,12 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
+import { enqueueFeedbackProcessing } from "@/lib/feedback-processor";
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
     const body = await request.json();
     const { title, description, productId } = body;
@@ -16,31 +17,30 @@ export async function POST(request: Request) {
     }
 
     if (productId && typeof productId === "string") {
-      const product = await prisma.product.findUnique({ where: { id: productId } });
+      const product = await prisma.product.findFirst({ where: { id: productId, organizationId: ctx.organizationId } });
       if (!product) {
         return NextResponse.json({ error: "Product not found" }, { status: 400 });
       }
     }
 
-    // Find-or-create the persistent "Manual entry" ImportRecord
     let manualImport = await prisma.importRecord.findFirst({
-      where: { filename: "Manual entry" },
+      where: { filename: "Manual entry", organizationId: ctx.organizationId },
     });
+
     if (!manualImport) {
       manualImport = await prisma.importRecord.create({
-        data: { filename: "Manual entry", productId: null },
+        data: { filename: "Manual entry", productId: null, organizationId: ctx.organizationId },
       });
     }
 
     const feedbackItem = await prisma.feedbackItem.create({
       data: {
+        organizationId: ctx.organizationId,
         title: title.trim(),
-        description:
-          description && typeof description === "string" && description.trim()
-            ? description.trim()
-            : null,
+        description: description && typeof description === "string" && description.trim() ? description.trim() : null,
         importId: manualImport.id,
         productId: productId && typeof productId === "string" ? productId : null,
+        processingStatus: "not_processed",
       },
       include: {
         product: { select: { name: true } },
@@ -48,11 +48,20 @@ export async function POST(request: Request) {
       },
     });
 
+    enqueueFeedbackProcessing(ctx.organizationId, [feedbackItem.id]);
+
     return NextResponse.json({
       id: feedbackItem.id,
       title: feedbackItem.title,
       description: feedbackItem.description,
       status: feedbackItem.status,
+      processingStatus: feedbackItem.processingStatus,
+      feedbackInsights: {
+        improvedSummary: null,
+        likelyDestination: null,
+        confidence: null,
+        reasonSignals: [],
+      },
       opportunities: [],
       productId: feedbackItem.productId,
       productName: feedbackItem.product?.name ?? null,

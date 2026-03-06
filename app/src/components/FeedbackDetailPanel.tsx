@@ -1,29 +1,78 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { XMarkIcon, CheckCircleIcon, XCircleIcon, MagnifyingGlassIcon } from "@heroicons/react/24/outline";
+import { XMarkIcon, XCircleIcon } from "@heroicons/react/24/outline";
 import type { FeedbackItem, FeedbackStatus } from "@/types";
-import { LinkOpportunityModal } from "./LinkOpportunityModal";
+import { Button, Badge } from "@/components/ui";
 
 interface FeedbackDetailPanelProps {
   selectedItem: FeedbackItem | null;
-  opportunities: { id: string; title: string }[];
-  products: { id: string; name: string; feedbackCount: number }[];
   onClose: () => void;
-  onAssignOpportunity: (itemId: string, opportunityId: string | null) => void;
-  onAssignProduct: (itemId: string, productId: string | null) => void;
   onStatusChange: (itemId: string, status: FeedbackStatus) => void;
 }
 
-function StatusBadge({ status }: { status: FeedbackStatus }) {
-  switch (status) {
-    case "new":
-      return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">New</span>;
-    case "reviewed":
-      return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Reviewed</span>;
-    case "rejected":
-      return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">Rejected</span>;
-  }
+function FeedbackInterpretation({ item }: { item: FeedbackItem }) {
+  const { processingStatus, feedbackInsights, opportunities } = item;
+  const chunks = feedbackInsights?.chunks ?? [];
+  const hasRouting = opportunities.length > 0;
+
+  return (
+    <div className="rounded-lg border border-gray-200 bg-gray-50 p-4 space-y-3">
+      <p className="text-sm font-medium text-gray-900">How the system read this</p>
+
+      {processingStatus === "not_processed" && (
+        <p className="text-sm text-gray-500">Not yet processed — will be picked up automatically.</p>
+      )}
+
+      {processingStatus === "processing" && (
+        <p className="text-sm text-gray-500">Reading this feedback now…</p>
+      )}
+
+      {processingStatus === "failed" && (
+        <p className="text-sm text-red-600">Processing failed. Will retry on the next run.</p>
+      )}
+
+      {processingStatus === "processed" && (
+        <>
+          {chunks.length === 0 ? (
+            <p className="text-sm text-gray-500">No ideas could be extracted from this feedback.</p>
+          ) : (
+            <div>
+              <p className="text-sm text-gray-600 mb-1.5">
+                {chunks.length === 1 ? "One idea was found:" : `${chunks.length} distinct ideas were found:`}
+              </p>
+              <ul className="space-y-1">
+                {chunks.map((text, i) => (
+                  <li key={i} className="flex gap-2 text-sm text-gray-800">
+                    <span className="text-gray-400 flex-shrink-0">·</span>
+                    <span>{text}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {hasRouting ? (
+            <div>
+              <p className="text-sm text-gray-600 mb-1.5">Where it went:</p>
+              <ul className="space-y-1">
+                {opportunities.map((o) => (
+                  <li key={o.id} className="flex gap-2 text-sm text-gray-800">
+                    <span className="text-blue-400 flex-shrink-0">→</span>
+                    <span>Linked to opportunity <span className="font-medium">"{o.title}"</span></span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : (
+            <p className="text-sm text-gray-500">
+              Not yet grouped into an opportunity — will be picked up automatically.
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  );
 }
 
 function OriginalDataSection({ metadata }: { metadata: Record<string, string> }) {
@@ -62,16 +111,11 @@ function OriginalDataSection({ metadata }: { metadata: Record<string, string> })
 
 export function FeedbackDetailPanel({
   selectedItem,
-  opportunities,
-  products,
   onClose,
-  onAssignOpportunity,
-  onAssignProduct,
   onStatusChange,
 }: FeedbackDetailPanelProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [confirmingReject, setConfirmingReject] = useState(false);
-  const [linkOppModalOpen, setLinkOppModalOpen] = useState(false);
 
   useEffect(() => {
     if (selectedItem) {
@@ -83,7 +127,6 @@ export function FeedbackDetailPanel({
 
   useEffect(() => {
     setConfirmingReject(false);
-    setLinkOppModalOpen(false);
   }, [selectedItem?.id]);
 
   const handleClose = () => {
@@ -96,17 +139,9 @@ export function FeedbackDetailPanel({
 
   if (!selectedItem) return null;
 
-  const handleLinkOpportunity = (opportunityId: string) => {
-    onAssignOpportunity(selectedItem.id, opportunityId);
-    setLinkOppModalOpen(false);
-  };
-
-  const canMarkReviewed = selectedItem.status !== "reviewed" && selectedItem.opportunities.length > 0;
-  const showMarkReviewed = selectedItem.status !== "reviewed";
-  const canRestore = selectedItem.status === "rejected" || selectedItem.status === "reviewed";
+  const isRejected = selectedItem.status === "rejected";
 
   return (
-    <>
     <div className="fixed inset-0 z-40 pointer-events-none">
       <div
         className={`fixed inset-0 bg-gray-900/50 transition-opacity duration-300 pointer-events-auto ${
@@ -122,11 +157,11 @@ export function FeedbackDetailPanel({
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 flex-shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-gray-900">Feedback Details</h2>
-            <StatusBadge status={selectedItem.status} />
+            {isRejected && <Badge variant="rejected">Rejected</Badge>}
           </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-500">
-            <XMarkIcon className="h-6 w-6" />
-          </button>
+          <Button variant="ghost" size="icon" onClick={handleClose}>
+            <XMarkIcon className="h-5 w-5" />
+          </Button>
         </div>
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-white">
           {selectedItem.description ? (
@@ -148,48 +183,11 @@ export function FeedbackDetailPanel({
           )}
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Product</label>
-            <select
-              value={selectedItem.productId || ""}
-              onChange={(e) => onAssignProduct(selectedItem.id, e.target.value || null)}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-            >
-              <option value="">Unassigned</option>
-              {products.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-            <p className="text-sm text-gray-600">{new Date(selectedItem.createdAt).toLocaleString()}</p>
+            <p className="text-sm text-gray-600">{new Date(selectedItem.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
           </div>
 
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">Opportunity</label>
-              <button
-                type="button"
-                onClick={() => setLinkOppModalOpen(true)}
-                className="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-900 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50"
-              >
-                <MagnifyingGlassIcon className="h-3.5 w-3.5" />
-                Search &amp; link
-              </button>
-            </div>
-            {selectedItem.opportunities.length > 0 ? (
-              <div className="flex flex-wrap gap-1">
-                {selectedItem.opportunities.map((o) => (
-                  <span key={o.id} className="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs">{o.title}</span>
-                ))}
-              </div>
-            ) : (
-              <p className="text-sm text-gray-400 italic">No opportunity linked</p>
-            )}
-          </div>
+          <FeedbackInterpretation item={selectedItem} />
 
           {selectedItem.metadata && Object.keys(selectedItem.metadata).length > 0 && (
             <OriginalDataSection metadata={selectedItem.metadata} />
@@ -202,59 +200,36 @@ export function FeedbackDetailPanel({
             <div className="flex items-center justify-between">
               <p className="text-sm text-gray-700">Reject this feedback item?</p>
               <div className="flex gap-2">
-                <button
-                  onClick={() => setConfirmingReject(false)}
-                  className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 border border-gray-300 rounded"
-                >
+                <Button variant="secondary" size="sm" onClick={() => setConfirmingReject(false)}>
                   Cancel
-                </button>
-                <button
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
                   onClick={() => {
                     onStatusChange(selectedItem.id, "rejected");
                     setConfirmingReject(false);
                   }}
-                  className="px-3 py-1.5 bg-red-600 text-white rounded text-sm hover:bg-red-700"
                 >
                   Confirm reject
-                </button>
+                </Button>
               </div>
             </div>
           ) : (
             <div className="flex items-center justify-between">
               <div>
-                {canRestore && (
-                  <button
-                    onClick={() => onStatusChange(selectedItem.id, "new")}
-                    className="px-3 py-1.5 text-sm text-gray-600 hover:text-gray-900 underline"
-                  >
+                {isRejected && (
+                  <Button variant="ghost" size="sm" onClick={() => onStatusChange(selectedItem.id, "new")}>
                     Restore to inbox
-                  </button>
+                  </Button>
                 )}
               </div>
               <div className="flex gap-2">
-                {selectedItem.status !== "rejected" && (
-                  <button
-                    onClick={() => setConfirmingReject(true)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50"
-                  >
+                {!isRejected && (
+                  <Button variant="danger" size="sm" onClick={() => setConfirmingReject(true)}>
                     <XCircleIcon className="h-4 w-4" />
                     Mark as rejected
-                  </button>
-                )}
-                {showMarkReviewed && (
-                  <span
-                    className="inline-flex"
-                    title={!canMarkReviewed ? "Please assign an opportunity first" : undefined}
-                  >
-                    <button
-                      onClick={() => canMarkReviewed && onStatusChange(selectedItem.id, "reviewed")}
-                      disabled={!canMarkReviewed}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-gray-900 text-white rounded text-sm hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-gray-900"
-                    >
-                      <CheckCircleIcon className="h-4 w-4" />
-                      Mark as reviewed
-                    </button>
-                  </span>
+                  </Button>
                 )}
               </div>
             </div>
@@ -262,13 +237,5 @@ export function FeedbackDetailPanel({
         </div>
       </div>
     </div>
-
-    <LinkOpportunityModal
-      isOpen={linkOppModalOpen}
-      onClose={() => setLinkOppModalOpen(false)}
-      onLink={handleLinkOpportunity}
-      linkedOpportunityIds={selectedItem.opportunities.map((o) => o.id)}
-    />
-    </>
   );
 }

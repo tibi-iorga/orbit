@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { XMarkIcon } from "@heroicons/react/24/outline";
 import type { FeedbackItem } from "@/types";
+import { Button, Input, Badge } from "@/components/ui";
 
 interface LinkFeedbackModalProps {
   isOpen: boolean;
@@ -82,32 +83,31 @@ export function LinkFeedbackModal({
       className="fixed inset-0 z-[200] flex items-center justify-center p-4"
       onClick={onClose}
     >
-      <div className="fixed inset-0 bg-black bg-opacity-50" />
+      <div className="fixed inset-0 bg-brand/40 backdrop-blur-[1px]" />
       <div
-        className="relative z-10 bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] flex flex-col"
+        className="relative z-10 bg-surface rounded-xl shadow-2xl ring-1 ring-border max-w-2xl w-full max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between flex-shrink-0">
-          <h2 className="text-lg font-semibold text-gray-900">Link Feedback</h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-500">
-            <XMarkIcon className="h-6 w-6" />
-          </button>
+        <div className="sticky top-0 bg-surface border-b border-border px-6 py-4 flex items-center justify-between flex-shrink-0">
+          <h2 className="text-sm font-semibold text-content">Link Feedback</h2>
+          <Button variant="ghost" size="icon" onClick={onClose}>
+            <XMarkIcon className="h-5 w-5" />
+          </Button>
         </div>
         <div className="px-6 pt-4 pb-2 flex-shrink-0">
-          <input
+          <Input
             ref={inputRef}
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search feedback by title or description…"
-            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-gray-900"
           />
         </div>
         <div className="flex-1 overflow-y-auto px-6 pb-6">
           {loading ? (
-            <p className="text-sm text-gray-500 py-4">Searching…</p>
+            <p className="text-sm text-content-muted py-4">Searching…</p>
           ) : results.length === 0 ? (
-            <p className="text-sm text-gray-500 py-4">
+            <p className="text-sm text-content-muted py-4">
               {searchQuery.trim() ? "No feedback found." : "Start typing to search feedback…"}
             </p>
           ) : (
@@ -121,8 +121,8 @@ export function LinkFeedbackModal({
                     key={item.id}
                     className={`px-3 py-2.5 border rounded-md transition-colors ${
                       alreadyLinked
-                        ? "border-gray-200 bg-gray-50 opacity-60 cursor-not-allowed"
-                        : "border-gray-200 hover:border-gray-400 hover:bg-gray-50 cursor-pointer"
+                        ? "border-border bg-surface-muted opacity-60 cursor-not-allowed"
+                        : "border-border hover:border-border-strong hover:bg-surface-muted cursor-pointer"
                     }`}
                     onClick={() => {
                       if (!alreadyLinked) {
@@ -133,40 +133,32 @@ export function LinkFeedbackModal({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-gray-900 line-clamp-2">{item.title}</div>
+                        <div className="text-sm font-medium text-content line-clamp-2">{item.title}</div>
                         {item.description && (
-                          <div className="text-xs text-gray-500 mt-0.5 line-clamp-2">{item.description}</div>
+                          <div className="text-xs text-content-muted mt-0.5 line-clamp-2">{item.description}</div>
                         )}
                         <div className="flex items-center gap-2 mt-1">
                           {item.productName && (
-                            <span className="text-xs text-gray-400">{item.productName}</span>
+                            <span className="text-xs text-content-subtle">{item.productName}</span>
                           )}
                           {item.productName && item.sourceName && (
-                            <span className="text-xs text-gray-300">·</span>
+                            <span className="text-xs text-border-strong">·</span>
                           )}
                           {item.sourceName && (
-                            <span className="text-xs text-gray-400">{item.sourceName}</span>
+                            <span className="text-xs text-content-subtle">{item.sourceName}</span>
                           )}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-1 flex-shrink-0">
                         {alreadyLinked && (
-                          <span className="text-xs text-gray-400 whitespace-nowrap">Already linked</span>
+                          <span className="text-xs text-content-subtle whitespace-nowrap">Already linked</span>
                         )}
                         {item.opportunities.length > 0 && !alreadyLinked && (
                           <span className="text-xs text-blue-600 whitespace-nowrap">
                             {item.opportunities.length} opportunit{item.opportunities.length === 1 ? "y" : "ies"}
                           </span>
                         )}
-                        <span className={`text-xs whitespace-nowrap px-1.5 py-0.5 rounded-full ${
-                          item.status === "new"
-                            ? "bg-blue-100 text-blue-700"
-                            : item.status === "reviewed"
-                            ? "bg-green-100 text-green-700"
-                            : "bg-red-100 text-red-700"
-                        }`}>
-                          {item.status}
-                        </span>
+                        <Badge variant={item.status as "new" | "reviewed" | "rejected"}>{item.status}</Badge>
                       </div>
                     </div>
                   </li>

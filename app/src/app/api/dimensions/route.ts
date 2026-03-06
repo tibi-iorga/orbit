@@ -1,13 +1,16 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    const dimensions = await prisma.dimension.findMany({ orderBy: { order: "asc" } });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
+    const dimensions = await prisma.dimension.findMany({
+      where: { organizationId: ctx.organizationId, archived: false },
+      orderBy: { order: "asc" },
+    });
     return NextResponse.json(dimensions);
   } catch (error) {
     console.error("Error fetching dimensions:", error);
@@ -17,16 +20,24 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = await request.json();
     const { name, type, weight, order, tag, direction } = body;
     if (!type) {
       return NextResponse.json({ error: "type required" }, { status: 400 });
     }
-    const maxOrder = await prisma.dimension.aggregate({ _max: { order: true } });
+
+    const maxOrder = await prisma.dimension.aggregate({
+      where: { organizationId: ctx.organizationId },
+      _max: { order: true },
+    });
+
     const dimension = await prisma.dimension.create({
       data: {
+        organizationId: ctx.organizationId,
         name: name || "",
         type: type === "scale" ? "scale" : "yesno",
         weight: typeof weight === "number" ? weight : 1,
@@ -36,6 +47,7 @@ export async function POST(request: Request) {
         archived: false,
       },
     });
+
     return NextResponse.json(dimension);
   } catch (error) {
     if (error instanceof SyntaxError) {
@@ -48,11 +60,17 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = await request.json();
     const { id, name, type, weight, order, tag, direction, archived } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const existing = await prisma.dimension.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: "Dimension not found" }, { status: 404 });
+
     const data: {
       name?: string;
       type?: string;
@@ -62,6 +80,7 @@ export async function PATCH(request: Request) {
       direction?: string;
       archived?: boolean;
     } = {};
+
     if (name !== undefined) data.name = name;
     if (type !== undefined) data.type = type === "scale" ? "scale" : "yesno";
     if (weight !== undefined) data.weight = weight;
@@ -69,6 +88,7 @@ export async function PATCH(request: Request) {
     if (tag !== undefined) data.tag = tag;
     if (direction !== undefined) data.direction = direction === "cost" ? "cost" : "benefit";
     if (archived !== undefined) data.archived = Boolean(archived);
+
     const dimension = await prisma.dimension.update({ where: { id }, data });
     return NextResponse.json(dimension);
   } catch (error) {
@@ -85,31 +105,31 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    // Count opportunities that have a score for this dimension
+    const dimension = await prisma.dimension.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!dimension) return NextResponse.json({ error: "Dimension not found" }, { status: 404 });
+
     const scoredCount = await prisma.opportunity.count({
-      where: { scores: { contains: id } },
+      where: { organizationId: ctx.organizationId, scores: { contains: id } },
     });
 
-    // Check for explicit confirmation
     let confirmed = false;
     try {
       const body = await request.json();
       confirmed = body.confirmed === true;
     } catch {
-      // No body or not JSON — confirmed stays false
+      confirmed = false;
     }
 
     if (!confirmed) {
-      return NextResponse.json(
-        { error: "confirmation required", scoredCount },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "confirmation required", scoredCount }, { status: 400 });
     }
 
     await prisma.dimension.delete({ where: { id } });

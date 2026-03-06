@@ -1,13 +1,13 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
 
 interface ProductWithCounts {
   id: string;
   name: string;
   description: string | null;
   parentId: string | null;
+  departmentId: string | null;
   feedbackCount: number;
   opportunityCount: number;
   importCount: number;
@@ -22,12 +22,10 @@ function buildProductTree(products: ProductWithCounts[]): ProductNode[] {
   const productMap = new Map<string, ProductNode>();
   const roots: ProductNode[] = [];
 
-  // Create nodes
   products.forEach((p) => {
     productMap.set(p.id, { ...p, children: [] });
   });
 
-  // Build tree
   products.forEach((p) => {
     const node = productMap.get(p.id)!;
     if (p.parentId) {
@@ -35,7 +33,6 @@ function buildProductTree(products: ProductWithCounts[]): ProductNode[] {
       if (parent) {
         parent.children.push(node);
       } else {
-        // Parent not found, treat as root
         roots.push(node);
       }
     } else {
@@ -43,14 +40,10 @@ function buildProductTree(products: ProductWithCounts[]): ProductNode[] {
     }
   });
 
-  // Sort children recursively
   function sortTree(nodes: ProductNode[]): ProductNode[] {
     return nodes
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((node) => ({
-        ...node,
-        children: sortTree(node.children),
-      }));
+      .map((node) => ({ ...node, children: sortTree(node.children) }));
   }
 
   return sortTree(roots);
@@ -58,9 +51,11 @@ function buildProductTree(products: ProductWithCounts[]): ProductNode[] {
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
     const products = await prisma.product.findMany({
+      where: { organizationId: ctx.organizationId },
       include: {
         _count: {
           select: {
@@ -78,13 +73,13 @@ export async function GET() {
       name: p.name,
       description: p.description,
       parentId: p.parentId,
+      departmentId: p.departmentId,
       feedbackCount: p._count.feedbackItems,
       opportunityCount: p._count.opportunities,
       importCount: p._count.imports,
       createdAt: p.createdAt,
     }));
 
-    // Return both flat list (for compatibility) and tree structure
     return NextResponse.json({
       flat: flatProducts,
       tree: buildProductTree(flatProducts),
@@ -95,55 +90,63 @@ export async function GET() {
   }
 }
 
-async function checkCircularReference(productId: string, newParentId: string | null): Promise<boolean> {
+async function checkCircularReference(productId: string, newParentId: string | null, organizationId: string): Promise<boolean> {
   if (!newParentId) return false;
   if (productId === newParentId) return true;
-  
+
   let currentId: string | null = newParentId;
   const visited = new Set<string>();
-  
+
   while (currentId) {
-    if (visited.has(currentId)) return true; // Cycle detected
-    if (currentId === productId) return true; // Would create cycle
+    if (visited.has(currentId)) return true;
+    if (currentId === productId) return true;
     visited.add(currentId);
-    
-    const parent: { parentId: string | null } | null = await prisma.product.findUnique({
-      where: { id: currentId },
+
+    const parent: { parentId: string | null } | null = await prisma.product.findFirst({
+      where: { id: currentId, organizationId },
       select: { parentId: true },
     });
 
     currentId = parent?.parentId || null;
   }
-  
+
   return false;
 }
 
 export async function POST(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = await request.json();
-    const { name, description, parentId } = body;
+    const { name, description, parentId, departmentId } = body;
     if (!name || typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "name required" }, { status: 400 });
     }
 
-    // Validate parentId if provided
     if (parentId !== undefined && parentId !== null) {
       if (typeof parentId !== "string") {
         return NextResponse.json({ error: "parentId must be a string or null" }, { status: 400 });
       }
-      const parentExists = await prisma.product.findUnique({ where: { id: parentId } });
+      const parentExists = await prisma.product.findFirst({ where: { id: parentId, organizationId: ctx.organizationId } });
       if (!parentExists) {
         return NextResponse.json({ error: "Parent product not found" }, { status: 404 });
       }
     }
 
+    if (departmentId) {
+      const deptExists = await prisma.department.findFirst({ where: { id: departmentId, organizationId: ctx.organizationId } });
+      if (!deptExists) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+    }
+
     const product = await prisma.product.create({
       data: {
+        organizationId: ctx.organizationId,
         name: name.trim(),
         description: description?.trim() || null,
         parentId: parentId || null,
+        departmentId: departmentId || null,
       },
       include: {
         _count: {
@@ -161,6 +164,7 @@ export async function POST(request: Request) {
       name: product.name,
       description: product.description,
       parentId: product.parentId,
+      departmentId: product.departmentId,
       feedbackCount: product._count.feedbackItems,
       opportunityCount: product._count.opportunities,
       importCount: product._count.imports,
@@ -177,13 +181,18 @@ export async function POST(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const body = await request.json();
-    const { id, name, description, parentId } = body;
+    const { id, name, description, parentId, departmentId } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    const data: { name?: string; description?: string | null; parentId?: string | null } = {};
+    const existing = await prisma.product.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: "Product not found" }, { status: 404 });
+
+    const data: { name?: string; description?: string | null; parentId?: string | null; departmentId?: string | null } = {};
     if (name !== undefined) {
       if (typeof name !== "string" || !name.trim()) {
         return NextResponse.json({ error: "name must be a non-empty string" }, { status: 400 });
@@ -197,19 +206,24 @@ export async function PATCH(request: Request) {
       if (parentId !== null && typeof parentId !== "string") {
         return NextResponse.json({ error: "parentId must be a string or null" }, { status: 400 });
       }
-      // Check for circular reference
-      const wouldCreateCycle = await checkCircularReference(id, parentId);
+      const wouldCreateCycle = await checkCircularReference(id, parentId, ctx.organizationId);
       if (wouldCreateCycle) {
         return NextResponse.json({ error: "Cannot set parent: would create circular reference" }, { status: 400 });
       }
-      // Validate parent exists if provided
       if (parentId) {
-        const parentExists = await prisma.product.findUnique({ where: { id: parentId } });
+        const parentExists = await prisma.product.findFirst({ where: { id: parentId, organizationId: ctx.organizationId } });
         if (!parentExists) {
           return NextResponse.json({ error: "Parent product not found" }, { status: 404 });
         }
       }
       data.parentId = parentId;
+    }
+    if ("departmentId" in body) {
+      if (departmentId) {
+        const deptExists = await prisma.department.findFirst({ where: { id: departmentId, organizationId: ctx.organizationId } });
+        if (!deptExists) return NextResponse.json({ error: "Department not found" }, { status: 404 });
+      }
+      data.departmentId = departmentId || null;
     }
 
     const product = await prisma.product.update({
@@ -231,6 +245,7 @@ export async function PATCH(request: Request) {
       name: product.name,
       description: product.description,
       parentId: product.parentId,
+      departmentId: product.departmentId,
       feedbackCount: product._count.feedbackItems,
       opportunityCount: product._count.opportunities,
       importCount: product._count.imports,
@@ -250,14 +265,18 @@ export async function PATCH(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const session = await getServerSession(authOptions);
-    if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    const ctx = await getRequestContext();
+    if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    // Check if product has children
-    const childCount = await prisma.product.count({ where: { parentId: id } });
+    const existing = await prisma.product.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: "Product not found" }, { status: 404 });
+
+    const childCount = await prisma.product.count({ where: { parentId: id, organizationId: ctx.organizationId } });
     if (childCount > 0) {
       return NextResponse.json(
         { error: "Cannot delete product: it has child products. Delete or reassign children first." },
@@ -265,10 +284,7 @@ export async function DELETE(request: Request) {
       );
     }
 
-    await prisma.product.delete({
-      where: { id },
-    });
-
+    await prisma.product.delete({ where: { id } });
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error && typeof error === "object" && "code" in error && error.code === "P2025") {

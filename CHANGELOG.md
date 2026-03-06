@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-03-07
+
+### Added
+- **Multi-tenancy** — full Organisation model with Membership, Invitation, and OrganizationIdentityProvider; all data is scoped to an org; bootstrap owner email/name/slug configurable via env vars
+- **Role-based access control** — `owner`, `admin`, `editor`, `viewer` roles enforced on every API route via `getRequestContext` / `hasMinimumRole`
+- **Users & invitations** — `/settings/users` page and `/api/users` route for managing org members and sending invites
+- **SSO / Auth0** — Auth0 OIDC provider replaces credentials in production; dev bypass via `CredentialsProvider` with `DEV_AUTH_EMAIL` / `DEV_AUTH_PASSWORD` env vars
+- **Ideas** — new `Idea` model; `/ideas` page for creating, searching, and linking ideas to opportunities; `IdeaOpportunity` junction table
+- **Departments** — `Department` model with product-line ownership; `/api/departments` CRUD; bidirectional dept ↔ product assignment in both modals
+- **Goals** — `Goal` model and `/api/goals` CRUD for organisation-level OKRs
+- **Personas** — `Persona` model with `PersonaProduct` mapping; `/api/personas` CRUD
+- **Company settings page** — `/settings/company` with org name/description editor, "Import from website" (scrapes and AI-fills description), departments tab, and users tab
+- **Opportunity grouper** — `lib/opportunity-grouper.ts` for cosine similarity clustering of ideas into opportunities with AI title generation (max 150 chars)
+- **Semantic routing** — `lib/semantic.ts` adjudicates new feedback: route to existing opportunity, create new opportunity, or no match
+- **Feedback processor** — `lib/feedback-processor.ts` and `/api/feedback/process` for background per-item semantic processing
+- **Extract feedback from import** — `/api/import/extract-feedback` route for pulling structured feedback out of unstructured import rows
+- **Opportunity merge preview** — `/api/opportunities/merge/preview` returns a diff before committing a merge
+- **Similar opportunities** — `/api/opportunities/[id]/similar` returns semantically close opportunities
+- **UI component library** — `src/components/ui/` with `Button`, `Input`, `Textarea`, `Select`, `Badge`, `Chip`, `Modal`, `Card`, `Spinner`, `EmptyState`, `FormField`, `Divider`, `Avatar`, `Text`
+- **`cn` utility** — `src/lib/cn.ts` for conditional Tailwind class merging
+- **`request-context.ts`** — `getRequestContext()` helper returns authenticated user + org + role from JWT; used by all API routes
+- **Product modal: "Managed by"** — department selector in Add/Edit Product modal; empty state pointing to Company settings when no departments exist
+- **Product settings: tree hierarchy** — `ProductsSettings` extracted to its own component; clean recursive tree with `border-l` connector lines; child cards suppress redundant "Parent:" label
+
+### Changed
+- **Opportunity status** — changed from `draft / approved / on_roadmap / rejected` to `not_on_roadmap / on_roadmap / archived`; roadmap page filters by `on_roadmap`
+- **Opportunity title generation** — AI prompt now specifies "max 150 characters"; safety truncation aligned to 150 chars (was 120)
+- **Auth bootstrap** — org name/slug/owner email driven by `BOOTSTRAP_ORG_NAME`, `BOOTSTRAP_ORG_SLUG`, `BOOTSTRAP_OWNER_EMAIL` env vars; defaults are generic (`My Organisation`, `admin@example.com`)
+- **Placeholder text** — removed all Cera/DCP-specific placeholder copy from input fields; replaced with generic examples
+- **Textarea** — globally resizable vertically (`resize-y`) via `ui/input.tsx`
+- **Products API** — `GET /api/products` returns `departmentId` in flat list; POST/PATCH accept and validate `departmentId`
+- **"Import from website"** — uses Chrome User-Agent + proper Accept headers; auto-prepends `https://` if omitted; descriptive errors for timeout vs DNS failure
+
+### Removed
+- Feedback count on product cards (stale data model reference)
+
 ## [0.4.0] - 2026-02-24
 
 ### Added
@@ -97,7 +133,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Optimistic UI updates for scoring
 - Database schema with Prisma (SQLite)
 
-[Unreleased]: https://github.com/tibi-iorga/orbit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/tibi-iorga/orbit/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/tibi-iorga/orbit/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/tibi-iorga/orbit/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/tibi-iorga/orbit/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/tibi-iorga/orbit/compare/v0.1.0...v0.2.0

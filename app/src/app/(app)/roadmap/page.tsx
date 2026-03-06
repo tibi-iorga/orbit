@@ -2,39 +2,42 @@
 
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import type { Opportunity } from "@/types";
+import type { Opportunity, Dimension } from "@/types";
+import { OpportunityDetailPanel } from "@/components/OpportunityDetailPanel";
+import { getCachedDimensions, getCachedProducts, fetchOpportunity } from "@/lib/cache";
+import { computeCombinedScore, type DimensionConfig } from "@/lib/score";
+import { Select } from "@/components/ui";
 
 export default function RoadmapPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const [opportunities, setOpportunities] = useState<Opportunity[]>([]);
   const [products, setProducts] = useState<{ id: string; name: string }[]>([]);
+  const [dimensions, setDimensions] = useState<Dimension[]>([]);
   const [productFilter, setProductFilter] = useState<string>("");
   const [loading, setLoading] = useState(true);
+  const [detailOpportunity, setDetailOpportunity] = useState<Opportunity | null>(null);
 
   useEffect(() => {
     const urlProductId = searchParams?.get("productId");
-    if (urlProductId) {
-      setProductFilter(urlProductId);
-    }
+    if (urlProductId) setProductFilter(urlProductId);
   }, [searchParams]);
 
   const load = useCallback(async () => {
     const params = new URLSearchParams();
     if (productFilter) params.set("productId", productFilter);
-    const res = await fetch(`/api/opportunities?${params}`);
-    if (!res.ok) {
-      console.error("Failed to load opportunities");
-      return;
+    const [res, dimData, prodData] = await Promise.all([
+      fetch(`/api/opportunities?${params}`),
+      getCachedDimensions().catch(() => [] as Dimension[]),
+      getCachedProducts().catch(() => [] as { id: string; name: string }[]),
+    ]);
+    if (res.ok) {
+      const data: Opportunity[] = await res.json();
+      // Only show on_roadmap opportunities on the roadmap
+      setOpportunities(data.filter((o) => o.status === "on_roadmap"));
     }
-    const data = await res.json();
-    setOpportunities(data);
-
-    const prodRes = await fetch("/api/products");
-    if (prodRes.ok) {
-      const prodData = await prodRes.json();
-      setProducts(prodData.flat || []);
-    }
+    setDimensions(dimData);
+    setProducts(prodData);
   }, [productFilter]);
 
   useEffect(() => {
@@ -42,34 +45,58 @@ export default function RoadmapPage() {
     load().finally(() => setLoading(false));
   }, [load]);
 
-  const opportunitiesByHorizon = useMemo(() => {
-    const now: Opportunity[] = [];
-    const next: Opportunity[] = [];
-    const later: Opportunity[] = [];
-    const unplanned: Opportunity[] = [];
+  const dimConfig: DimensionConfig[] = useMemo(
+    () => dimensions.filter((d) => d.name.trim() !== "").map((d) => ({ id: d.id, name: d.name, type: d.type, weight: d.weight, order: d.order, tag: d.tag, direction: d.direction })),
+    [dimensions]
+  );
 
-    const sorted = [...opportunities].sort((a, b) => b.combinedScore - a.combinedScore);
+  const openDetail = useCallback(async (opp: Opportunity) => {
+    setDetailOpportunity(opp);
+    const fresh = await fetchOpportunity(opp.id);
+    if (fresh) setDetailOpportunity(fresh as Opportunity);
+  }, []);
 
-    for (const opp of sorted) {
-      if (opp.horizon === "now") {
-        now.push(opp);
-      } else if (opp.horizon === "next") {
-        next.push(opp);
-      } else if (opp.horizon === "later") {
-        later.push(opp);
-      } else {
-        unplanned.push(opp);
-      }
+  const handleDetailUpdate = useCallback(async (id: string, updates: Partial<Opportunity>) => {
+    setDetailOpportunity((prev) => (prev ? { ...prev, ...updates } : null));
+    setOpportunities((prev) => prev.map((o) => (o.id === id ? { ...o, ...updates } : o)));
+    const res = await fetch("/api/opportunities", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, ...updates }),
+    });
+    if (res.ok) {
+      const updated = await res.json();
+      setDetailOpportunity((prev) => (prev ? { ...prev, ...updated } : null));
+      setOpportunities((prev) => prev.map((o) => (o.id === id ? { ...o, ...updated } : o)));
     }
+  }, []);
 
-    return { now, next, later, unplanned };
+  const handleDetailUpdateScore = useCallback((id: string, scores: Record<string, number>, explanation: Record<string, string>) => {
+    const combinedScore = computeCombinedScore(scores, dimConfig);
+    setDetailOpportunity((prev) => prev ? { ...prev, scores, explanation, combinedScore } : null);
+    setOpportunities((prev) => prev.map((o) => o.id === id ? { ...o, scores, explanation, combinedScore } : o));
+    fetch("/api/opportunities", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, scores, explanation }),
+    });
+  }, [dimConfig]);
+
+  const opportunitiesByHorizon = useMemo(() => {
+    const sorted = [...opportunities].sort((a, b) => b.combinedScore - a.combinedScore);
+    return {
+      now: sorted.filter((o) => o.horizon === "now"),
+      next: sorted.filter((o) => o.horizon === "next"),
+      later: sorted.filter((o) => o.horizon === "later"),
+      unplanned: sorted.filter((o) => !o.horizon),
+    };
   }, [opportunities]);
 
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <h1 className="text-xl font-semibold text-gray-900">Roadmap</h1>
-        <select
+        <Select
           value={productFilter}
           onChange={(e) => {
             setProductFilter(e.target.value);
@@ -79,71 +106,89 @@ export default function RoadmapPage() {
               router.push("/roadmap");
             }
           }}
-          className="px-3 py-1.5 border border-gray-300 rounded text-sm"
+          className="w-auto py-1.5"
         >
           <option value="">All products</option>
           {products.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
+            <option key={p.id} value={p.id}>{p.name}</option>
           ))}
-        </select>
+        </Select>
       </div>
 
       {loading ? (
-        <p className="text-gray-500">Loading…</p>
-      ) : (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <HorizonColumn title="Now" opportunities={opportunitiesByHorizon.now} />
-          <HorizonColumn title="Next" opportunities={opportunitiesByHorizon.next} />
-          <HorizonColumn title="Later" opportunities={opportunitiesByHorizon.later} />
+        <p className="text-content-muted">Loading…</p>
+      ) : opportunities.length === 0 ? (
+        <div className="text-center py-16 text-content-muted">
+          <p className="text-base mb-1">No opportunities on the roadmap yet.</p>
+          <p className="text-sm">Approve opportunities and assign a horizon (Now / Next / Later) to see them here.</p>
         </div>
+      ) : (
+        <>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <HorizonColumn title="Now" opportunities={opportunitiesByHorizon.now} onOpen={openDetail} />
+            <HorizonColumn title="Next" opportunities={opportunitiesByHorizon.next} onOpen={openDetail} />
+            <HorizonColumn title="Later" opportunities={opportunitiesByHorizon.later} onOpen={openDetail} />
+          </div>
+          {opportunitiesByHorizon.unplanned.length > 0 && (
+            <div className="mt-6">
+              <h2 className="text-lg font-medium text-gray-900 mb-3">Unplanned ({opportunitiesByHorizon.unplanned.length})</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {opportunitiesByHorizon.unplanned.map((opp) => (
+                  <OpportunityCard key={opp.id} opportunity={opp} onOpen={openDetail} />
+                ))}
+              </div>
+            </div>
+          )}
+        </>
       )}
 
-      {opportunitiesByHorizon.unplanned.length > 0 && (
-        <div className="mt-6">
-          <h2 className="text-lg font-medium text-gray-900 mb-3">Unplanned</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {opportunitiesByHorizon.unplanned.map((opp) => (
-              <OpportunityCard key={opp.id} opportunity={opp} />
-            ))}
-          </div>
-        </div>
+      {detailOpportunity && (
+        <OpportunityDetailPanel
+          opportunity={detailOpportunity}
+          dimensions={dimensions}
+          products={products}
+          onClose={() => setDetailOpportunity(null)}
+          onUpdate={handleDetailUpdate}
+          onUpdateScore={handleDetailUpdateScore}
+        />
       )}
     </div>
   );
 }
 
-function HorizonColumn({ title, opportunities }: { title: string; opportunities: Opportunity[] }) {
+function HorizonColumn({ title, opportunities, onOpen }: { title: string; opportunities: Opportunity[]; onOpen: (o: Opportunity) => void }) {
   return (
     <div className="space-y-3">
-      <h2 className="text-lg font-medium text-gray-900">
+      <h2 className="text-lg font-medium text-content">
         {title} ({opportunities.length})
       </h2>
       <div className="space-y-3">
         {opportunities.length === 0 ? (
-          <p className="text-sm text-gray-500">No opportunities</p>
+          <p className="text-sm text-content-subtle">Nothing here yet</p>
         ) : (
-          opportunities.map((opp) => <OpportunityCard key={opp.id} opportunity={opp} />)
+          opportunities.map((opp) => <OpportunityCard key={opp.id} opportunity={opp} onOpen={onOpen} />)
         )}
       </div>
     </div>
   );
 }
 
-function OpportunityCard({ opportunity }: { opportunity: Opportunity }) {
+function OpportunityCard({ opportunity, onOpen }: { opportunity: Opportunity; onOpen: (o: Opportunity) => void }) {
   return (
-    <div className="p-4 border border-gray-200 rounded bg-white hover:shadow-md transition-shadow">
-      <h3 className="font-medium text-gray-900 mb-1">{opportunity.title}</h3>
+    <div
+      onClick={() => onOpen(opportunity)}
+      className="p-4 border border-border rounded-lg bg-surface hover:shadow-md hover:border-border-strong transition-all cursor-pointer"
+    >
+      <h3 className="font-medium text-content mb-1">{opportunity.title}</h3>
       {opportunity.productName && (
-        <p className="text-xs text-gray-500 mb-2">{opportunity.productName}</p>
+        <p className="text-xs text-content-muted mb-2">{opportunity.productName}</p>
       )}
-      <div className="flex items-center justify-between text-xs text-gray-600">
-        <span>{opportunity.feedbackCount} items</span>
-        <span className="font-medium">Score: {opportunity.combinedScore}</span>
+      <div className="flex items-center justify-between text-xs text-content-muted">
+        <span>{opportunity.feedbackCount} idea{opportunity.feedbackCount !== 1 ? "s" : ""}</span>
+        {opportunity.combinedScore > 0 && <span className="font-medium">Score: {opportunity.combinedScore}</span>}
       </div>
       {opportunity.quarter && (
-        <p className="text-xs text-gray-500 mt-2">{opportunity.quarter}</p>
+        <p className="text-xs text-content-subtle mt-2">{opportunity.quarter}</p>
       )}
     </div>
   );

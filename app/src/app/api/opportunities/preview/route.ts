@@ -1,9 +1,8 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import OpenAI from "openai";
 import { getSystemPrompt, getOpenAIApiKey } from "@/lib/ai-settings";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
 
 const MAX_ITEMS = 400;
 
@@ -15,35 +14,33 @@ export interface PreviewCluster {
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const body = await request.json().catch(() => ({}));
-    const selectedIds: string[] | undefined =
-      Array.isArray(body.ids) && body.ids.length > 0 ? body.ids : undefined;
+    const selectedIds: string[] | undefined = Array.isArray(body.ids) && body.ids.length > 0 ? body.ids : undefined;
 
-    // Resolve API key and system prompt from DB (with env fallback)
     const [apiKey, systemPrompt, allProducts] = await Promise.all([
-      getOpenAIApiKey(),
-      getSystemPrompt(),
-      prisma.product.findMany({ select: { id: true, name: true, description: true } }),
+      getOpenAIApiKey(ctx.organizationId),
+      getSystemPrompt(ctx.organizationId),
+      prisma.product.findMany({
+        where: { organizationId: ctx.organizationId },
+        select: { id: true, name: true, description: true },
+      }),
     ]);
 
     if (!apiKey) {
-      return NextResponse.json(
-        { error: "No OpenAI API key configured. Add one in Settings → Auto-group feedback." },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "No OpenAI API key configured. Add one in Settings -> Auto-group feedback." }, { status: 400 });
     }
 
     const openai = new OpenAI({ apiKey });
 
-    // Fetch feedback items — either the selected subset or all unassigned
     const unassigned = await prisma.feedbackItem.findMany({
       where: selectedIds
-        ? { id: { in: selectedIds } }
-        : { opportunityLinks: { none: {} } },
+        ? { id: { in: selectedIds }, organizationId: ctx.organizationId }
+        : { organizationId: ctx.organizationId, NOT: { ideas: { some: { opportunityLinks: { some: {} } } } } },
       select: { id: true, title: true, description: true },
       orderBy: { createdAt: "desc" },
       take: MAX_ITEMS,
@@ -55,23 +52,21 @@ export async function POST(request: Request) {
 
     const itemList = unassigned
       .map((item, i) => {
-        const desc = item.description ? ` — ${item.description.slice(0, 150)}` : "";
+        const desc = item.description ? ` - ${item.description.slice(0, 150)}` : "";
         return `[${i}] ${item.title}${desc}`;
       })
       .join("\n");
 
-    // Build optional product context section
-    const productSection = allProducts.length > 0
-      ? `\nAvailable products — assign each opportunity to the best-fit productId, or null if none fits:\n${allProducts
-          .map((p) => `- "${p.id}": ${p.name}${p.description ? ` — ${p.description}` : ""}`)
-          .join("\n")}\n`
-      : "";
+    const productSection =
+      allProducts.length > 0
+        ? `\nAvailable products - assign each opportunity to the best-fit productId, or null if none fits:\n${allProducts
+            .map((p) => `- "${p.id}": ${p.name}${p.description ? ` - ${p.description}` : ""}`)
+            .join("\n")}\n`
+        : "";
 
-    const productIdField = allProducts.length > 0
-      ? `\n      "productId": "<product id from the list above, or null>",`
-      : "";
+    const productIdField = allProducts.length > 0 ? `\n      "productId": "<product id from the list above, or null>",` : "";
 
-    const userPrompt = `Here are ${unassigned.length} unassigned customer feedback items (format: [index] title — description):
+    const userPrompt = `Here are ${unassigned.length} unassigned customer feedback items (format: [index] title - description):
 
 ${itemList}
 ${productSection}
@@ -97,7 +92,10 @@ Group them into opportunity themes. Respond with this exact JSON structure:
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
-    let parsed: { opportunities?: { title: string; description: string; productId?: string | null; feedbackIndices: number[] }[] };
+    let parsed: {
+      opportunities?: { title: string; description: string; productId?: string | null; feedbackIndices: number[] }[];
+    };
+
     try {
       parsed = JSON.parse(raw);
     } catch {
@@ -108,7 +106,6 @@ Group them into opportunity themes. Respond with this exact JSON structure:
     const rawClusters = parsed.opportunities ?? [];
     const validProductIds = new Set(allProducts.map((p) => p.id));
 
-    // Resolve indices → actual feedback items (no DB writes)
     const clusters: PreviewCluster[] = rawClusters.map((cluster) => {
       const validIndices = (cluster.feedbackIndices ?? []).filter(
         (i) => typeof i === "number" && i >= 0 && i < unassigned.length
@@ -122,11 +119,7 @@ Group them into opportunity themes. Respond with this exact JSON structure:
           return true;
         });
 
-      // Only accept productId if it's a valid known product
-      const productId =
-        cluster.productId && validProductIds.has(cluster.productId)
-          ? cluster.productId
-          : null;
+      const productId = cluster.productId && validProductIds.has(cluster.productId) ? cluster.productId : null;
 
       return {
         title: cluster.title,

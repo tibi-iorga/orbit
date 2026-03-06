@@ -1,8 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
-import { XMarkIcon } from "@heroicons/react/24/outline";
 import type { Opportunity } from "@/types";
+import { Modal, FormField, Input, Textarea, Select, Button } from "@/components/ui";
 
 interface OpportunityModalProps {
   isOpen: boolean;
@@ -109,104 +109,67 @@ export function OpportunityModal({
     }
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto">
-      <div className="flex min-h-screen items-center justify-center p-4">
-        <div className="fixed inset-0 bg-black bg-opacity-50" onClick={onClose} />
-        <div className="relative bg-white rounded-lg shadow-xl max-w-lg w-full">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200">
-            <h2 className="text-lg font-semibold text-gray-900">New Opportunity</h2>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
-          </div>
-          <form onSubmit={handleSubmit} className="px-6 py-4 space-y-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Product <span className="text-red-500">*</span>
-              </label>
-              <select
-                value={productId}
-                onChange={(e) => setProductId(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                required
-              >
-                <option value="">Select a product</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Title <span className="text-red-500">*</span>
-              </label>
-              <input
-                type="text"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                placeholder="Opportunity title"
-                required
-                autoFocus
-              />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
-              <textarea
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                placeholder="What is this opportunity?"
-                rows={3}
-              />
-            </div>
-
-            {prelinkedFeedbackItems.length > 0 && (
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Linked feedback
-                </label>
-                <ul className="list-disc list-inside text-sm text-gray-600 space-y-1">
-                  {prelinkedFeedbackItems.map((item) => (
-                    <li key={item.id}>{item.title}</li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {error && <p className="text-sm text-red-600">{error}</p>}
-
-            <div className="flex gap-3 justify-end pt-4">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-4 py-2 border border-gray-300 rounded text-sm text-gray-700 hover:bg-gray-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={submitting}
-                className="px-4 py-2 bg-gray-900 text-white rounded text-sm hover:bg-gray-800 disabled:opacity-50"
-              >
-                {submitting ? "Creating..." : "Create opportunity"}
-              </button>
-            </div>
-          </form>
+    <Modal
+      title="New Opportunity"
+      open={isOpen}
+      onClose={onClose}
+      size="lg"
+      footer={
+        <div className="flex gap-2 justify-end w-full">
+          <Button variant="secondary" type="button" onClick={onClose}>Cancel</Button>
+          <Button type="submit" form="opportunity-modal-form" loading={submitting}>
+            Create opportunity
+          </Button>
         </div>
-      </div>
-    </div>
+      }
+    >
+      <form id="opportunity-modal-form" onSubmit={handleSubmit} className="space-y-4">
+        <FormField label="Product" required error={!productId && error ? error : undefined}>
+          <Select
+            value={productId}
+            onChange={(e) => setProductId(e.target.value)}
+            required
+          >
+            <option value="">Select a product</option>
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </Select>
+        </FormField>
+
+        <FormField label="Title" required error={!title.trim() && error ? error : undefined}>
+          <Input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Opportunity title"
+            required
+            autoFocus
+          />
+        </FormField>
+
+        <FormField label="Description">
+          <Textarea
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="What is this opportunity?"
+            rows={3}
+          />
+        </FormField>
+
+        {prelinkedFeedbackItems.length > 0 && (
+          <FormField label="Linked feedback">
+            <ul className="list-disc list-inside text-sm text-content-muted space-y-1">
+              {prelinkedFeedbackItems.map((item) => (
+                <li key={item.id}>{item.title}</li>
+              ))}
+            </ul>
+          </FormField>
+        )}
+
+        {error && <p className="text-sm text-danger">{error}</p>}
+      </form>
+    </Modal>
   );
 }

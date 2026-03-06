@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
 
 interface ApplyCluster {
   title: string;
@@ -10,14 +9,10 @@ interface ApplyCluster {
   feedbackItems: { id: string; title: string }[];
 }
 
-/**
- * POST /api/opportunities/auto
- * Accepts a list of reviewed clusters (from the preview modal) and writes them to the DB.
- * No AI calls here — AI runs in /api/opportunities/preview.
- */
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
 
   try {
     const body = await request.json();
@@ -33,25 +28,44 @@ export async function POST(request: Request) {
     for (const cluster of clusters) {
       const feedbackIds = (cluster.feedbackItems ?? []).map((f) => f.id).filter(Boolean);
 
+      const validFeedback = await prisma.feedbackItem.findMany({
+        where: { id: { in: feedbackIds }, organizationId: ctx.organizationId },
+        select: { id: true },
+      });
+      const scopedFeedbackIds = validFeedback.map((f) => f.id);
+
+      let scopedProductId: string | null = null;
+      if (cluster.productId) {
+        const product = await prisma.product.findFirst({ where: { id: cluster.productId, organizationId: ctx.organizationId }, select: { id: true } });
+        scopedProductId = product?.id ?? null;
+      }
+
+      const ideas = scopedFeedbackIds.length
+        ? await prisma.idea.findMany({
+            where: { feedbackItemId: { in: scopedFeedbackIds }, organizationId: ctx.organizationId },
+            select: { id: true },
+          })
+        : [];
+
       const opp = await prisma.opportunity.create({
         data: {
+          organizationId: ctx.organizationId,
           title: cluster.title,
           description: cluster.description || null,
-          productId: cluster.productId || null,
-          feedbackLinks: feedbackIds.length
-            ? { create: feedbackIds.map((fid) => ({ feedbackItemId: fid })) }
+          productId: scopedProductId,
+          ideaLinks: ideas.length
+            ? { create: ideas.map((i) => ({ ideaId: i.id, organizationId: ctx.organizationId })) }
             : undefined,
         },
       });
 
-      feedbackIds.forEach((id) => allLinkedFeedbackIds.add(id));
-      created.push({ id: opp.id, title: opp.title, feedbackCount: feedbackIds.length });
+      scopedFeedbackIds.forEach((id) => allLinkedFeedbackIds.add(id));
+      created.push({ id: opp.id, title: opp.title, feedbackCount: ideas.length });
     }
 
-    // Single bulk status update for all linked feedback items
     if (allLinkedFeedbackIds.size > 0) {
       await prisma.feedbackItem.updateMany({
-        where: { id: { in: Array.from(allLinkedFeedbackIds) } },
+        where: { id: { in: Array.from(allLinkedFeedbackIds) }, organizationId: ctx.organizationId },
         data: { status: "reviewed" },
       });
     }

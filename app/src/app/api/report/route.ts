@@ -1,19 +1,18 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import OpenAI from "openai";
 import { parseScores, computeCombinedScore, type DimensionConfig } from "@/lib/score";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
+import { getOpenAIApiKey } from "@/lib/ai-settings";
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const apiKey = process.env.OPENAI_API_KEY;
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
+  const apiKey = await getOpenAIApiKey(ctx.organizationId);
   if (!apiKey) {
-    return NextResponse.json(
-      { error: "OPENAI_API_KEY not configured" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "OPENAI_API_KEY not configured" }, { status: 500 });
   }
   const openai = new OpenAI({ apiKey });
 
@@ -21,13 +20,21 @@ export async function POST(request: Request) {
   const { opportunityId } = body;
   if (!opportunityId) return NextResponse.json({ error: "opportunityId required" }, { status: 400 });
 
-  const opp = await prisma.opportunity.findUnique({
-    where: { id: opportunityId },
-    include: { feedbackLinks: { include: { feedbackItem: { select: { title: true } } }, take: 10 } },
+  const opp = await prisma.opportunity.findFirst({
+    where: { id: opportunityId, organizationId: ctx.organizationId },
+    include: {
+      ideaLinks: {
+        include: { idea: { select: { text: true, feedbackItem: { select: { title: true } } } } },
+        take: 10,
+      },
+    },
   });
   if (!opp) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
 
-  const dimensions = await prisma.dimension.findMany({ orderBy: { order: "asc" } });
+  const dimensions = await prisma.dimension.findMany({
+    where: { organizationId: ctx.organizationId, archived: false, name: { not: "" } },
+    orderBy: { order: "asc" },
+  });
   const dimConfig: DimensionConfig[] = dimensions.map((d) => ({
     id: d.id,
     name: d.name,
@@ -39,9 +46,9 @@ export async function POST(request: Request) {
   }));
 
   const scores = parseScores(opp.scores);
-  const combined = computeCombinedScore(scores, dimConfig);
+  computeCombinedScore(scores, dimConfig);
 
-  const topItems = opp.feedbackLinks.map((l) => l.feedbackItem.title);
+  const topItems = opp.ideaLinks.map((l) => l.idea.feedbackItem?.title ?? l.idea.text);
 
   const prompt = `Summarize the change management implications of this feature opportunity in one short paragraph (3 to 5 sentences). Audience: healthcare leadership. Be concrete and avoid jargon. Do not use bullet points.
 

@@ -2,75 +2,70 @@
 
 import React, { useState, useEffect } from "react";
 import { XMarkIcon } from "@heroicons/react/24/outline";
-import type { Opportunity, Dimension, FeedbackItem } from "@/types";
-import { FeedbackItemModal } from "./FeedbackItemModal";
-import { LinkFeedbackModal } from "./LinkFeedbackModal";
+import type { Opportunity, Dimension } from "@/types";
 import { computeCombinedScore, getMaxPossibleScore, NA_SCORE, type DimensionConfig } from "@/lib/score";
+import { Button, Badge, Input, Textarea, Select } from "@/components/ui";
+
+interface GoalOption {
+  id: string;
+  title: string;
+  status: string;
+}
+
+interface IdeaItem {
+  id: string;
+  text: string;
+}
+
+interface SimilarOpportunity {
+  id: string;
+  title: string;
+  feedbackCount: number;
+  similarity: number;
+}
 
 interface OpportunityDetailPanelProps {
   opportunity: Opportunity | null;
   dimensions: Dimension[];
   products: { id: string; name: string }[];
+  goals?: GoalOption[];
   onClose: () => void;
   onUpdate: (id: string, updates: Partial<Opportunity>) => void;
   onUpdateScore: (id: string, scores: Record<string, number>, explanation: Record<string, string>) => void;
+  onMergeWith?: (otherId: string) => void;
 }
 
-function getStatusColor(status: Opportunity["status"]): string {
-  switch (status) {
-    case "draft":
-      return "bg-gray-200 text-gray-700";
-    case "under_review":
-      return "bg-yellow-100 text-yellow-800";
-    case "approved":
-      return "bg-blue-100 text-blue-800";
-    case "on_roadmap":
-      return "bg-green-100 text-green-800";
-    case "rejected":
-      return "bg-red-100 text-red-800";
-    default:
-      return "bg-gray-200 text-gray-700";
-  }
-}
-
-function getStatusLabel(status: Opportunity["status"]): string {
-  switch (status) {
-    case "draft":
-      return "Draft";
-    case "under_review":
-      return "Under Review";
-    case "approved":
-      return "Approved";
-    case "on_roadmap":
-      return "On Roadmap";
-    case "rejected":
-      return "Rejected";
-    default:
-      return status;
-  }
+function statusLabel(status: string): string {
+  if (status === "on_roadmap") return "On Roadmap";
+  if (status === "not_on_roadmap") return "Not on Roadmap";
+  return status.charAt(0).toUpperCase() + status.slice(1);
 }
 
 export function OpportunityDetailPanel({
   opportunity,
   dimensions,
   products,
+  goals = [],
   onClose,
   onUpdate,
   onUpdateScore,
+  onMergeWith,
 }: OpportunityDetailPanelProps) {
   const [panelOpen, setPanelOpen] = useState(false);
   const [editingTitle, setEditingTitle] = useState(false);
   const [editingDescription, setEditingDescription] = useState(false);
   const [titleValue, setTitleValue] = useState("");
   const [descriptionValue, setDescriptionValue] = useState("");
-  const [feedbackItems, setFeedbackItems] = useState<FeedbackItem[]>([]);
-  const [loadingFeedback, setLoadingFeedback] = useState(false);
-  const [showLinkModal, setShowLinkModal] = useState(false);
-  const [selectedFeedbackItem, setSelectedFeedbackItem] = useState<FeedbackItem | null>(null);
+  const [ideas, setIdeas] = useState<IdeaItem[]>([]);
+  const [loadingIdeas, setLoadingIdeas] = useState(false);
+  const [similarOpps, setSimilarOpps] = useState<SimilarOpportunity[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [productValue, setProductValue] = useState("");
+  const [goalValue, setGoalValue] = useState("");
   const [showMoveToRoadmap, setShowMoveToRoadmap] = useState(false);
   const [moveHorizon, setMoveHorizon] = useState<"now" | "next" | "later">("now");
   const [moveWhen, setMoveWhen] = useState("");
+  const [showArchiveConfirm, setShowArchiveConfirm] = useState(false);
 
   useEffect(() => {
     if (opportunity) {
@@ -78,25 +73,37 @@ export function OpportunityDetailPanel({
       setTitleValue(opportunity.title);
       setDescriptionValue(opportunity.description || "");
       setProductValue(opportunity.productId || "");
-      } else {
+      setGoalValue(opportunity.goalId || "");
+      setShowArchiveConfirm(false);
+      setSimilarOpps([]);
+    } else {
       setPanelOpen(false);
     }
   }, [opportunity]);
 
   useEffect(() => {
     if (opportunity && panelOpen) {
-      setLoadingFeedback(true);
-      fetch(`/api/feedback?opportunityId=${opportunity.id}`)
+      setLoadingIdeas(true);
+      fetch(`/api/ideas?opportunityId=${opportunity.id}&limit=100`)
         .then(async (r) => {
           if (r.ok) {
             const data = await r.json();
-            setFeedbackItems(data.feedbackItems || []);
+            setIdeas(data.ideas ?? []);
           }
         })
-        .finally(() => setLoadingFeedback(false));
-    }
-  }, [opportunity, panelOpen]);
+        .finally(() => setLoadingIdeas(false));
 
+      setLoadingSimilar(true);
+      fetch(`/api/opportunities/${opportunity.id}/similar`)
+        .then(async (r) => {
+          if (r.ok) {
+            const data = await r.json();
+            setSimilarOpps(data.similar ?? []);
+          }
+        })
+        .finally(() => setLoadingSimilar(false));
+    }
+  }, [opportunity?.id, panelOpen]);
 
   const handleClose = () => {
     setPanelOpen(false);
@@ -104,15 +111,14 @@ export function OpportunityDetailPanel({
       onClose();
       setEditingTitle(false);
       setEditingDescription(false);
-      setShowLinkModal(false);
-      setSelectedFeedbackItem(null);
       setShowMoveToRoadmap(false);
+      setShowArchiveConfirm(false);
     }, 300);
   };
 
   const handleArchive = () => {
     if (!opportunity) return;
-    onUpdate(opportunity.id, { status: "rejected" });
+    onUpdate(opportunity.id, { status: "archived" });
     handleClose();
   };
 
@@ -127,32 +133,14 @@ export function OpportunityDetailPanel({
     setMoveWhen("");
   };
 
-  const handleUnlinkFeedback = async (itemId: string) => {
+  const handleRemoveFromRoadmap = () => {
     if (!opportunity) return;
-    await fetch(`/api/opportunities/${opportunity.id}?feedbackItemId=${itemId}`, {
-      method: "DELETE",
-    });
-    setFeedbackItems((prev) => prev.filter((f) => f.id !== itemId));
-  };
-
-  const handleLinkFeedback = async (itemId: string) => {
-    if (!opportunity) return;
-    await fetch("/api/feedback", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: itemId, opportunityId: opportunity.id }),
-    });
-    // Reload feedback items
-    const res = await fetch(`/api/feedback?opportunityId=${opportunity.id}`);
-    if (res.ok) {
-      const data = await res.json();
-      setFeedbackItems(data.feedbackItems || []);
-    }
+    onUpdate(opportunity.id, { status: "not_on_roadmap", horizon: null, quarter: null });
   };
 
   if (!opportunity) return null;
 
-  const dimConfig: DimensionConfig[] = dimensions.map((d) => ({
+  const dimConfig: DimensionConfig[] = dimensions.filter((d) => d.name.trim() !== "").map((d) => ({
     id: d.id,
     name: d.name,
     type: d.type,
@@ -180,83 +168,62 @@ export function OpportunityDetailPanel({
           panelOpen ? "translate-x-0" : "translate-x-full"
         }`}
       >
+        {/* Header */}
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between z-10 flex-shrink-0">
           <div className="flex items-center gap-3">
             <h2 className="text-lg font-semibold text-gray-900">Opportunity Details</h2>
-            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${getStatusColor(opportunity.status)}`}>
-              {getStatusLabel(opportunity.status)}
-            </span>
+            <Badge variant={opportunity.status as "not_on_roadmap" | "on_roadmap" | "archived"}>
+              {statusLabel(opportunity.status)}
+            </Badge>
           </div>
-          <button onClick={handleClose} className="text-gray-400 hover:text-gray-500">
-            <XMarkIcon className="h-6 w-6" />
-          </button>
+          <Button variant="ghost" size="icon" onClick={handleClose}>
+            <XMarkIcon className="h-5 w-5" />
+          </Button>
         </div>
+
+        {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-6 space-y-6 bg-white">
-          {/* Title + Product */}
-          <div className="space-y-3">
-            <div>
-              {editingTitle ? (
-                <input
-                  type="text"
-                  value={titleValue}
-                  onChange={(e) => setTitleValue(e.target.value)}
-                  onBlur={() => {
-                    if (titleValue.trim() && titleValue !== opportunity.title) {
-                      onUpdate(opportunity.id, { title: titleValue.trim() });
-                    }
-                    setEditingTitle(false);
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.currentTarget.blur();
-                    } else if (e.key === "Escape") {
-                      setTitleValue(opportunity.title);
-                      setEditingTitle(false);
-                    }
-                  }}
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm font-medium"
-                  autoFocus
-                />
-              ) : (
-                <h3
-                  className="text-lg font-medium text-gray-900 cursor-text hover:bg-gray-50 p-1 rounded -ml-1"
-                  onClick={() => setEditingTitle(true)}
-                >
-                  {opportunity.title}
-                </h3>
-              )}
-            </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
-              <select
-                value={productValue}
-                onChange={(e) => {
-                  setProductValue(e.target.value);
-                  onUpdate(opportunity.id, { productId: e.target.value || null });
+
+          {/* Title */}
+          {/* Title */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Title</label>
+            {editingTitle ? (
+              <Input
+                type="text"
+                value={titleValue}
+                onChange={(e) => setTitleValue(e.target.value)}
+                onBlur={() => {
+                  if (titleValue.trim() && titleValue !== opportunity.title) {
+                    onUpdate(opportunity.id, { title: titleValue.trim() });
+                  }
+                  setEditingTitle(false);
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                  else if (e.key === "Escape") { setTitleValue(opportunity.title); setEditingTitle(false); }
+                }}
+                autoFocus
+              />
+            ) : (
+              <p
+                className="text-sm text-gray-900 cursor-text hover:bg-gray-50 p-1 rounded -ml-1"
+                onClick={() => setEditingTitle(true)}
               >
-                <option value="">No product</option>
-                {products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+                {opportunity.title}
+              </p>
+            )}
           </div>
 
           {/* Description */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
             {editingDescription ? (
-              <textarea
+              <Textarea
                 value={descriptionValue}
                 onChange={(e) => setDescriptionValue(e.target.value)}
                 onBlur={() => {
-                  onUpdate(opportunity.id, {
-                    description: descriptionValue.trim() || null,
-                  });
+                  onUpdate(opportunity.id, { description: descriptionValue.trim() || null });
                   setEditingDescription(false);
                 }}
                 onKeyDown={(e) => {
@@ -265,7 +232,6 @@ export function OpportunityDetailPanel({
                     setEditingDescription(false);
                   }
                 }}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
                 rows={3}
                 autoFocus
               />
@@ -279,7 +245,28 @@ export function OpportunityDetailPanel({
             )}
           </div>
 
-          {/* Scoring: one row per dimension with dropdown */}
+          {/* Ideas */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Ideas ({ideas.length})
+            </label>
+            {loadingIdeas ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : ideas.length === 0 ? (
+              <p className="text-sm text-gray-500">No ideas linked yet.</p>
+            ) : (
+              <ul className="space-y-1">
+                {ideas.map((idea) => (
+                  <li key={idea.id} className="flex gap-2 text-sm text-gray-800">
+                    <span className="text-gray-400 flex-shrink-0 mt-px">·</span>
+                    <span>{idea.text}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+
+          {/* Scoring */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">Scoring</label>
             <div className="border border-gray-200 rounded overflow-hidden">
@@ -297,7 +284,7 @@ export function OpportunityDetailPanel({
                       <tr key={dim.id} className={`hover:bg-gray-50/50 ${isNA ? "opacity-40" : ""}`}>
                         <td className="px-3 py-2 text-sm text-gray-900">{dim.name}</td>
                         <td className="px-3 py-2">
-                          <select
+                          <Select
                             value={opportunity.scores[dim.id] ?? ""}
                             onChange={(e) => {
                               const raw = e.target.value;
@@ -311,7 +298,7 @@ export function OpportunityDetailPanel({
                               const newExplanation = { ...opportunity.explanation, [dim.id]: opportunity.explanation[dim.id] ?? "" };
                               onUpdateScore(opportunity.id, newScores, newExplanation);
                             }}
-                            className="w-full px-2 py-1.5 border border-gray-300 rounded text-sm"
+                            className="py-1.5"
                           >
                             <option value="">—</option>
                             {dim.type === "yesno" ? (
@@ -327,7 +314,7 @@ export function OpportunityDetailPanel({
                               </>
                             )}
                             <option value={NA_SCORE}>N/A</option>
-                          </select>
+                          </Select>
                         </td>
                       </tr>
                     );
@@ -340,184 +327,153 @@ export function OpportunityDetailPanel({
             </p>
           </div>
 
-          {/* Roadmap */}
+          {/* Product */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Roadmap</label>
-            <select
-              value={opportunity.horizon ?? ""}
+            <label className="block text-sm font-medium text-gray-700 mb-1">Product</label>
+            <Select
+              value={productValue}
               onChange={(e) => {
-                const v = e.target.value as "" | "now" | "next" | "later";
-                onUpdate(opportunity.id, { horizon: v || null, quarter: v ? opportunity.quarter : null });
+                setProductValue(e.target.value);
+                onUpdate(opportunity.id, { productId: e.target.value || null });
               }}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
             >
-              <option value="">Not on roadmap</option>
-              <option value="now">Now</option>
-              <option value="next">Next</option>
-              <option value="later">Later</option>
-            </select>
-            {opportunity.horizon && (
-              <div className="mt-2">
-                <label className="block text-sm font-medium text-gray-700 mb-1">When</label>
-                <input
-                  type="text"
-                  value={opportunity.quarter || ""}
-                  onChange={(e) => onUpdate(opportunity.id, { quarter: e.target.value || null })}
-                  placeholder="e.g. Q2 2025"
-                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm"
-                />
-              </div>
-            )}
+              <option value="">No product</option>
+              {products.map((p) => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </Select>
           </div>
 
-          {/* Feedback Items */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">
-                Feedback Items ({feedbackItems.length})
-              </label>
-              <button
-                onClick={() => setShowLinkModal(true)}
-                className="text-xs font-medium text-gray-600 border border-gray-300 rounded px-2 py-1 hover:bg-gray-50"
+          {/* Goal */}
+          {goals.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Goal</label>
+              <Select
+                value={goalValue}
+                onChange={(e) => {
+                  setGoalValue(e.target.value);
+                  onUpdate(opportunity.id, { goalId: e.target.value || null });
+                }}
               >
-                + Link feedback
-              </button>
+                <option value="">No goal</option>
+                {goals.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.title}{g.status !== "active" ? ` (${g.status})` : ""}
+                  </option>
+                ))}
+              </Select>
             </div>
-            {loadingFeedback ? (
-              <p className="text-sm text-gray-500">Loading…</p>
+          )}
+
+          {/* Similar opportunities */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">Similar opportunities</label>
+            {loadingSimilar ? (
+              <p className="text-sm text-gray-400">Checking for similar…</p>
+            ) : similarOpps.length === 0 ? (
+              <p className="text-sm text-gray-400">No similar opportunities found.</p>
             ) : (
-              <>
-                {feedbackItems.length === 0 ? (
-                  <p className="text-sm text-gray-500">No feedback items linked yet.</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {feedbackItems.map((item) => (
-                      <li key={item.id} className="flex items-center justify-between text-sm group border-b border-gray-100 pb-2 last:border-0">
-                        <button
-                          onClick={() => setSelectedFeedbackItem(item)}
-                          className="flex-1 text-left text-gray-900 hover:text-gray-700 hover:underline truncate"
-                          title={item.title}
-                        >
-                          {item.title}
-                        </button>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleUnlinkFeedback(item.id);
-                          }}
-                          className="ml-2 opacity-0 group-hover:opacity-100 text-xs text-red-600 hover:underline transition-opacity whitespace-nowrap"
-                        >
-                          Unlink
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </>
+              <ul className="space-y-1.5">
+                {similarOpps.map((s) => (
+                  <li key={s.id} className="flex items-center justify-between gap-3 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm text-gray-900 truncate">{s.title}</p>
+                      <p className="text-xs text-gray-400">{s.feedbackCount} idea{s.feedbackCount !== 1 ? "s" : ""}</p>
+                    </div>
+                    {onMergeWith && (
+                      <Button variant="secondary" size="sm" onClick={() => onMergeWith(s.id)}>
+                        Merge
+                      </Button>
+                    )}
+                  </li>
+                ))}
+              </ul>
             )}
           </div>
         </div>
 
-        {/* Footer: primary actions */}
+        {/* Footer */}
         <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4 flex-shrink-0">
-          {showMoveToRoadmap ? (
+          {showArchiveConfirm ? (
+            <div className="flex items-center gap-3">
+              <p className="text-sm text-gray-700">Archive this opportunity?</p>
+              <Button variant="secondary" size="sm" onClick={handleArchive}>Confirm</Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowArchiveConfirm(false)}>Cancel</Button>
+            </div>
+          ) : showMoveToRoadmap ? (
             <div className="space-y-3">
               <p className="text-sm font-medium text-gray-900">Add to roadmap</p>
               <div className="flex gap-2 flex-wrap items-end">
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Horizon</label>
-                  <select
+                  <Select
                     value={moveHorizon}
                     onChange={(e) => setMoveHorizon(e.target.value as "now" | "next" | "later")}
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm"
+                    className="w-auto py-1.5"
                   >
                     <option value="now">Now</option>
                     <option value="next">Next</option>
                     <option value="later">Later</option>
-                  </select>
+                  </Select>
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">Timeline (optional)</label>
-                  <input
+                  <Input
                     type="text"
                     value={moveWhen}
                     onChange={(e) => setMoveWhen(e.target.value)}
                     placeholder="e.g. Q2 2025"
-                    className="px-3 py-1.5 border border-gray-300 rounded text-sm w-32"
+                    className="w-32 py-1.5"
                     autoFocus
                   />
                 </div>
               </div>
               <div className="flex gap-2">
-                <button
-                  onClick={handleMoveToRoadmapConfirm}
-                  className="px-4 py-2 bg-gray-900 text-white rounded text-sm font-medium hover:bg-gray-800"
-                >
-                  Confirm
-                </button>
-                <button
-                  onClick={() => setShowMoveToRoadmap(false)}
-                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  Cancel
-                </button>
+                <Button onClick={handleMoveToRoadmapConfirm}>Confirm</Button>
+                <Button variant="secondary" onClick={() => setShowMoveToRoadmap(false)}>Cancel</Button>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-2">
               {opportunity.status !== "on_roadmap" ? (
-                <button
+                <Button
                   onClick={() => {
                     setMoveHorizon(opportunity.horizon || "now");
                     setMoveWhen(opportunity.quarter || "");
                     setShowMoveToRoadmap(true);
                   }}
-                  className="px-4 py-2 bg-gray-900 text-white rounded text-sm font-medium hover:bg-gray-800"
                 >
                   Add to roadmap
-                </button>
+                </Button>
               ) : (
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-2 bg-green-50 text-green-700 rounded text-sm font-medium">
                     ✓ On roadmap{opportunity.quarter ? ` · ${opportunity.quarter}` : ""}
                   </span>
-                  <button
+                  <Button
+                    variant="ghost"
+                    size="sm"
                     onClick={() => {
                       setMoveHorizon(opportunity.horizon || "now");
                       setMoveWhen(opportunity.quarter || "");
                       setShowMoveToRoadmap(true);
                     }}
-                    className="text-sm text-gray-500 hover:text-gray-700 underline"
                   >
                     Change
-                  </button>
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleRemoveFromRoadmap}>
+                    Remove
+                  </Button>
                 </div>
               )}
-              {opportunity.status !== "rejected" && (
-                <button
-                  onClick={handleArchive}
-                  className="px-4 py-2 text-sm text-gray-600 border border-gray-300 rounded hover:bg-gray-50"
-                >
-                  Archive
-                </button>
+              {opportunity.status !== "archived" && (
+                <Button variant="secondary" onClick={() => setShowArchiveConfirm(true)}>Archive</Button>
               )}
             </div>
           )}
         </div>
       </div>
 
-      <LinkFeedbackModal
-        isOpen={showLinkModal}
-        onClose={() => setShowLinkModal(false)}
-        onLink={handleLinkFeedback}
-        opportunityId={opportunity.id}
-        productId={opportunity.productId}
-      />
-
-      <FeedbackItemModal
-        item={selectedFeedbackItem}
-        onClose={() => setSelectedFeedbackItem(null)}
-      />
     </div>
   );
 }

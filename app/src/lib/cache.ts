@@ -86,6 +86,10 @@ export function setCachedOpportunitiesList(key: string, data: Opportunity[]): vo
   opportunitiesListCache = { key, data, ts: Date.now() };
 }
 
+export function invalidateOpportunitiesListCache(): void {
+  opportunitiesListCache = null;
+}
+
 /** Fetches one opportunity by id; deduplicates in-flight requests (e.g. Strict Mode double-mount). */
 export function fetchOpportunity(id: string): Promise<Opportunity | null> {
   const existing = inFlightOpportunity.get(id);

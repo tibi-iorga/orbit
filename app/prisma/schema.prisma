@@ -8,100 +8,309 @@ datasource db {
   directUrl = env("DATABASE_POSTGRES_URL_NON_POOLING")
 }
 
+enum MembershipRole {
+  owner
+  admin
+  editor
+  viewer
+}
+
+enum IdentityProviderType {
+  oidc
+  saml
+}
+
+
 model User {
-  id             String    @id @default(cuid())
-  email          String    @unique
-  passwordHash   String
-  createdAt      DateTime  @default(now())
+  id             String      @id @default(cuid())
+  email          String      @unique
+  name           String?
+  passwordHash   String?
+  memberships    Membership[]
+  invitationsSent Invitation[] @relation("InvitationSender")
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+}
+
+model Organization {
+  id                String                         @id @default(cuid())
+  name              String
+  slug              String                         @unique
+  description       String?
+  strategicGoal     String?
+  memberships       Membership[]
+  invitations       Invitation[]
+  identityProviders OrganizationIdentityProvider[]
+  products          Product[]
+  imports           ImportRecord[]
+  opportunities     Opportunity[]
+  dimensions        Dimension[]
+  appSettings       AppSetting[]
+  feedbackItems     FeedbackItem[]
+  ideas             Idea[]
+  departments       Department[]
+  personas          Persona[]
+  goals             Goal[]
+  createdAt         DateTime                       @default(now())
+  updatedAt         DateTime                       @updatedAt
+}
+
+model Membership {
+  id             String         @id @default(cuid())
+  userId         String
+  organizationId String
+  role           MembershipRole @default(viewer)
+  user           User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+}
+
+model Invitation {
+  id              String         @id @default(cuid())
+  email           String
+  token           String         @unique
+  role            MembershipRole @default(viewer)
+  organizationId  String
+  invitedByUserId String?
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  organization    Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  invitedBy       User?          @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: SetNull)
+  createdAt       DateTime       @default(now())
+
+  @@index([organizationId, email])
+  @@index([organizationId, acceptedAt])
+}
+
+model OrganizationIdentityProvider {
+  id             String               @id @default(cuid())
+  organizationId String
+  name           String
+  type           IdentityProviderType @default(oidc)
+  issuer         String?
+  authorizationUrl String?
+  tokenUrl       String?
+  userInfoUrl    String?
+  jwksUrl        String?
+  clientId       String?
+  clientSecret   String?
+  domains        String[]
+  enabled        Boolean              @default(true)
+  organization   Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdAt      DateTime             @default(now())
+  updatedAt      DateTime             @updatedAt
+
+  @@index([organizationId, enabled])
 }
 
 model Product {
-  id          String         @id @default(cuid())
-  name        String
-  description String?
-  parentId    String?
-  parent      Product?       @relation("ProductHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
-  children    Product[]      @relation("ProductHierarchy")
-  createdAt   DateTime       @default(now())
-  imports     ImportRecord[]
-  feedbackItems FeedbackItem[]
-  opportunities Opportunity[]
+  id             String         @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  parentId       String?
+  departmentId   String?
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  parent         Product?       @relation("ProductHierarchy", fields: [parentId], references: [id], onDelete: Cascade)
+  children       Product[]      @relation("ProductHierarchy")
+  department     Department?    @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  createdAt      DateTime       @default(now())
+  imports        ImportRecord[]
+  feedbackItems  FeedbackItem[]
+  opportunities  Opportunity[]
+  personaProducts PersonaProduct[]
 
+  @@index([organizationId])
   @@index([name])
   @@index([parentId])
+  @@index([departmentId])
 }
 
 model ImportRecord {
   id            String         @id @default(cuid())
+  organizationId String
   filename      String
   productId     String?
+  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   product       Product?       @relation(fields: [productId], references: [id], onDelete: SetNull)
   createdAt     DateTime       @default(now())
   feedbackItems FeedbackItem[]
+
+  @@index([organizationId])
 }
 
 model Opportunity {
-  id            String                    @id @default(cuid())
+  id            String             @id @default(cuid())
+  organizationId String
   title         String
   description   String?
   productId     String?
-  product       Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  scores        String?                   // JSON: { dimensionId: value }
-  explanation   String?                   // JSON: { dimensionId: "short explanation" }
+  goalId        String?
+  organization  Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  product       Product?           @relation(fields: [productId], references: [id], onDelete: SetNull)
+  goal          Goal?              @relation(fields: [goalId], references: [id], onDelete: SetNull)
+  scores        String?            // JSON: { dimensionId: value }
+  explanation   String?            // JSON: { dimensionId: "short explanation" }
   reportSummary String?
-  horizon       String?                   // "now" | "next" | "later"
-  quarter       String?                   // e.g. "Q2 2025"
-  status        String                    @default("draft")  // "draft" | "under_review" | "approved" | "on_roadmap" | "rejected"
-  createdAt     DateTime                  @default(now())
-  feedbackLinks FeedbackItemOpportunity[]
+  horizon       String?            // "now" | "next" | "later"
+  quarter       String?            // e.g. "Q2 2025"
+  status        String             @default("not_on_roadmap")  // "not_on_roadmap" | "on_roadmap" | "archived"
+  confidence    Float              @default(0)
+  metadata      Json?
+  semanticEmbedding Json?
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now()) @updatedAt
+  ideaLinks     IdeaOpportunity[]
 
+  @@index([organizationId])
   @@index([productId])
+  @@index([goalId])
   @@index([horizon])
+  @@index([organizationId, status])
 }
 
-model FeedbackItemOpportunity {
-  feedbackItemId  String
-  opportunityId   String
-  feedbackItem    FeedbackItem @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
-  opportunity     Opportunity  @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
-  createdAt       DateTime     @default(now())
+model IdeaOpportunity {
+  id             String      @id @default(cuid())
+  ideaId         String
+  opportunityId  String
+  organizationId String
+  idea           Idea        @relation(fields: [ideaId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  createdAt      DateTime    @default(now())
 
-  @@id([feedbackItemId, opportunityId])
+  @@unique([ideaId, opportunityId])
   @@index([opportunityId])
+  @@index([ideaId])
+  @@index([organizationId])
 }
 
 model Dimension {
-  id        String  @id @default(cuid())
-  name      String
-  type      String  // "yesno" | "scale"
-  weight    Float   @default(1)
-  order     Int     @default(0)
-  tag       String  @default("") // free-text scoring hint
-  direction String  @default("benefit") // "benefit" (higher = better) | "cost" (higher = worse)
-  archived  Boolean @default(false)
+  id             String        @id @default(cuid())
+  organizationId String
+  name           String
+  type           String        // "yesno" | "scale"
+  weight         Float         @default(1)
+  order          Int           @default(0)
+  tag            String        @default("") // free-text scoring hint
+  direction      String        @default("benefit") // "benefit" (higher = better) | "cost" (higher = worse)
+  archived       Boolean       @default(false)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
 }
 
 // Generic key-value store for app-level settings (prompt, API key override, etc.)
 model AppSetting {
-  key       String   @id
-  value     String
-  updatedAt DateTime @updatedAt
+  id             String       @id @default(cuid())
+  organizationId String
+  key            String
+  value          String
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedAt      DateTime     @updatedAt
+
+  @@unique([organizationId, key])
+  @@index([organizationId])
 }
 
 model FeedbackItem {
-  id               String                    @id @default(cuid())
+  id               String                   @id @default(cuid())
+  organizationId   String
   title            String
   description      String?
-  metadata         Json?                     // stores unmapped CSV columns verbatim
-  status           String                    @default("new") // "new" | "reviewed" | "rejected"
+  metadata         Json?                    // stores unmapped CSV columns verbatim
+  status           String                   @default("new") // "new" | "reviewed" | "rejected"
+  processingStatus String                   @default("not_processed") // "not_processed" | "processing" | "processed" | "failed"
+  processedSummary String?
+  processedConfidence Float?
+  processedAt      DateTime?
+  processingError  String?
   importId         String
-  import           ImportRecord              @relation(fields: [importId], references: [id], onDelete: Cascade)
+  organization     Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  import           ImportRecord             @relation(fields: [importId], references: [id], onDelete: Cascade)
   productId        String?
-  product          Product?                  @relation(fields: [productId], references: [id], onDelete: SetNull)
-  createdAt        DateTime                  @default(now())
-  opportunityLinks FeedbackItemOpportunity[]
+  product          Product?                 @relation(fields: [productId], references: [id], onDelete: SetNull)
+  createdAt        DateTime                 @default(now())
+  ideas            Idea[]
 
+  @@index([organizationId])
   @@index([importId])
   @@index([productId])
   @@index([status])
+  @@index([processingStatus])
 }
+
+model Idea {
+  id             String        @id @default(cuid())
+  organizationId String
+  feedbackItemId String?                            // null for PM-created ideas
+  text           String
+  source         String        @default("ai_extracted") // "manual" | "ai_extracted"
+  embedding      Json?
+  index          Int           @default(0)
+  feedbackItem   FeedbackItem? @relation(fields: [feedbackItemId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  opportunityLinks IdeaOpportunity[]
+  createdAt      DateTime      @default(now())
+
+  @@index([feedbackItemId])
+  @@index([organizationId])
+}
+
+model Department {
+  id             String       @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products       Product[]
+  goals          Goal[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+}
+
+model Persona {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  products       PersonaProduct[]
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  @@index([organizationId])
+}
+
+model PersonaProduct {
+  personaId String
+  productId String
+  persona   Persona @relation(fields: [personaId], references: [id], onDelete: Cascade)
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([personaId, productId])
+  @@index([productId])
+}
+
+model Goal {
+  id             String        @id @default(cuid())
+  organizationId String
+  departmentId   String?
+  title          String
+  description    String?
+  status         String        @default("active") // "active" | "paused" | "done"
+  organization   Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  department     Department?   @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  opportunities  Opportunity[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([organizationId])
+  @@index([departmentId])
+}
+

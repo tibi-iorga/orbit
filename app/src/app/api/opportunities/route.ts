@@ -1,11 +1,17 @@
 import { NextResponse } from "next/server";
-import { getServerSession } from "next-auth";
-import { authOptions } from "@/lib/auth";
 import { prisma } from "@/lib/db";
 import { parseScores, serializeScores, computeCombinedScore, type DimensionConfig } from "@/lib/score";
+import { getRequestContext, hasMinimumRole } from "@/lib/request-context";
+import { generateEmbedding } from "@/lib/semantic";
+import { groupNewIdeasIntoOpportunities } from "@/lib/opportunity-grouper";
+import type { Prisma } from "@prisma/client";
 
-async function getDimConfig(): Promise<DimensionConfig[]> {
-  const dimensions = await prisma.dimension.findMany({ orderBy: { order: "asc" } });
+async function getDimConfig(organizationId: string): Promise<DimensionConfig[]> {
+  const dimensions = await prisma.dimension.findMany({
+    where: { organizationId, archived: false, name: { not: "" } },
+    orderBy: { order: "asc" },
+  });
+
   return dimensions.map((d) => ({
     id: d.id,
     name: d.name,
@@ -18,8 +24,9 @@ async function getDimConfig(): Promise<DimensionConfig[]> {
 }
 
 export async function GET(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+
   try {
     const { searchParams } = new URL(request.url);
     const productId = searchParams.get("productId");
@@ -28,17 +35,20 @@ export async function GET(request: Request) {
     const search = searchParams.get("search")?.trim() || "";
 
     const opportunityInclude = {
-      _count: { select: { feedbackLinks: true } },
+      _count: { select: { ideaLinks: true } },
       product: { select: { name: true } },
+      goal: { select: { id: true, title: true } },
     } as const;
-    type OpportunityWithRelations = Awaited<ReturnType<typeof prisma.opportunity.findMany<{ include: typeof opportunityInclude }>>>[number];
+
+    type OpportunityWithRelations = Awaited<
+      ReturnType<typeof prisma.opportunity.findMany<{ include: typeof opportunityInclude }>>
+    >[number];
+
     let opportunities: OpportunityWithRelations[];
 
     if (search.length >= 2) {
-      // ── Full-text search path ─────────────────────────────────────────────
       const { Prisma } = await import("@prisma/client");
 
-      // Check whether the FTS column exists (migration may not have been applied yet)
       const colCheck = await prisma.$queryRaw<{ exists: boolean }[]>(
         Prisma.sql`
           SELECT EXISTS (
@@ -49,7 +59,10 @@ export async function GET(request: Request) {
       );
       const hasFtsColumn = colCheck[0]?.exists ?? false;
 
-      const conditions: ReturnType<typeof Prisma.sql>[] = [];
+      const conditions: ReturnType<typeof Prisma.sql>[] = [
+        Prisma.sql`o."organizationId" = ${ctx.organizationId}`,
+      ];
+
       if (hasFtsColumn) {
         conditions.push(Prisma.sql`o.search_vector @@ plainto_tsquery('english', ${search})`);
       } else {
@@ -85,19 +98,20 @@ export async function GET(request: Request) {
       } else {
         const orderedIds = ids.map((r) => r.id);
         const rows = await prisma.opportunity.findMany({
-          where: { id: { in: orderedIds } },
+          where: { id: { in: orderedIds }, organizationId: ctx.organizationId },
           include: opportunityInclude,
         });
         const orderMap = new Map(orderedIds.map((id, i) => [id, i]));
         opportunities = rows.sort((a, b) => (orderMap.get(a.id) ?? 0) - (orderMap.get(b.id) ?? 0));
       }
     } else {
-      // ── Normal Prisma path ────────────────────────────────────────────────
       const where: {
+        organizationId: string;
         productId?: string | null;
         horizon?: string | null;
         status?: string;
-      } = {};
+      } = { organizationId: ctx.organizationId };
+
       if (productId) where.productId = productId;
       if (horizon && horizon !== "__unplanned__") where.horizon = horizon;
       if (horizon === "__unplanned__") where.horizon = null;
@@ -110,7 +124,7 @@ export async function GET(request: Request) {
       });
     }
 
-    const dimConfig = await getDimConfig();
+    const dimConfig = await getDimConfig(ctx.organizationId);
 
     const opportunitiesWithScores = opportunities.map((r) => {
       const scores = parseScores(r.scores);
@@ -118,20 +132,25 @@ export async function GET(request: Request) {
       let explanation: Record<string, string> = {};
       try {
         if (r.explanation) explanation = JSON.parse(r.explanation);
-      } catch {}
+      } catch {
+        explanation = {};
+      }
+
       return {
         id: r.id,
         title: r.title,
         description: r.description,
         productId: r.productId,
         productName: r.product?.name ?? null,
+        goalId: r.goalId,
+        goalTitle: r.goal?.title ?? null,
         scores,
         explanation,
         reportSummary: r.reportSummary,
         horizon: r.horizon as "now" | "next" | "later" | null,
         quarter: r.quarter,
-        status: r.status as "draft" | "under_review" | "approved" | "on_roadmap" | "rejected",
-        feedbackCount: r._count.feedbackLinks,
+        status: r.status as "not_on_roadmap" | "on_roadmap" | "archived",
+        feedbackCount: r._count.ideaLinks,
         combinedScore,
         createdAt: r.createdAt.toISOString(),
       };
@@ -145,29 +164,67 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const body = await request.json();
+
+    // Trigger AI grouping of unrouted ideas into opportunities
+    if (body.action === "group") {
+      await groupNewIdeasIntoOpportunities(ctx.organizationId);
+      return NextResponse.json({ ok: true });
+    }
+
     const { title, description, productId, feedbackItemIds } = body;
     if (!title) return NextResponse.json({ error: "title required" }, { status: 400 });
+
+    let scopedProductId: string | null = null;
+    if (productId) {
+      const product = await prisma.product.findFirst({ where: { id: productId, organizationId: ctx.organizationId }, select: { id: true } });
+      if (!product) return NextResponse.json({ error: "Product not found" }, { status: 400 });
+      scopedProductId = product.id;
+    }
+
+    const scopedFeedbackIds: string[] = feedbackItemIds?.length
+      ? (
+          await prisma.feedbackItem.findMany({
+            where: { id: { in: feedbackItemIds }, organizationId: ctx.organizationId },
+            select: { id: true },
+          })
+        ).map((f) => f.id)
+      : [];
+
+    // Find ideas for the given feedback items to link via IdeaOpportunity
+    const scopedIdeas = scopedFeedbackIds.length
+      ? await prisma.idea.findMany({
+          where: { feedbackItemId: { in: scopedFeedbackIds }, organizationId: ctx.organizationId },
+          select: { id: true },
+        })
+      : [];
+
     const opp = await prisma.opportunity.create({
       data: {
+        organizationId: ctx.organizationId,
         title,
         description: description || null,
-        productId: productId || null,
-        feedbackLinks: feedbackItemIds?.length
-          ? { create: feedbackItemIds.map((fid: string) => ({ feedbackItemId: fid })) }
+        productId: scopedProductId,
+        semanticEmbedding:
+          (await generateEmbedding(ctx.organizationId, `${title}${description ? ` - ${description}` : ""}`)) ?? undefined,
+        ideaLinks: scopedIdeas.length
+          ? { create: scopedIdeas.map((i) => ({ ideaId: i.id, organizationId: ctx.organizationId })) }
           : undefined,
       },
     });
-    // Mark linked feedback as reviewed
-    if (feedbackItemIds?.length) {
+
+    if (scopedFeedbackIds.length) {
       await prisma.feedbackItem.updateMany({
-        where: { id: { in: feedbackItemIds } },
+        where: { id: { in: scopedFeedbackIds }, organizationId: ctx.organizationId },
         data: { status: "reviewed" },
       });
     }
+
     return NextResponse.json({
       id: opp.id,
       title: opp.title,
@@ -175,13 +232,16 @@ export async function POST(request: Request) {
       productId: opp.productId,
       horizon: opp.horizon,
       quarter: opp.quarter,
-      status: opp.status as "draft" | "under_review" | "approved" | "on_roadmap" | "rejected",
-      feedbackCount: feedbackItemIds?.length ?? 0,
+      status: opp.status as "not_on_roadmap" | "on_roadmap" | "archived",
+      feedbackCount: scopedIdeas.length,
       combinedScore: 0,
       scores: {},
       explanation: {},
       reportSummary: null,
       productName: null,
+      goalId: null,
+      goalTitle: null,
+      confidence: opp.confidence,
       createdAt: opp.createdAt.toISOString(),
     });
   } catch (error) {
@@ -191,12 +251,18 @@ export async function POST(request: Request) {
 }
 
 export async function PATCH(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const body = await request.json();
-    const { id, title, description, scores, explanation, horizon, quarter, reportSummary, status } = body;
+    const { id, title, description, scores, explanation, horizon, quarter, reportSummary, status, goalId, productId } = body;
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
+
+    const existing = await prisma.opportunity.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!existing) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
+
     const data: {
       title?: string;
       description?: string | null;
@@ -206,7 +272,11 @@ export async function PATCH(request: Request) {
       quarter?: string | null;
       reportSummary?: string | null;
       status?: string;
+      goalId?: string | null;
+      productId?: string | null;
+      semanticEmbedding?: Prisma.InputJsonValue | Prisma.NullableJsonNullValueInput;
     } = {};
+
     if (title !== undefined) data.title = title;
     if (description !== undefined) data.description = description === null || description === "" ? null : description;
     if (scores !== undefined) data.scores = serializeScores(scores);
@@ -215,21 +285,36 @@ export async function PATCH(request: Request) {
     if (quarter !== undefined) data.quarter = quarter === null || quarter === "" ? null : quarter;
     if (reportSummary !== undefined) data.reportSummary = reportSummary === null || reportSummary === "" ? null : reportSummary;
     if (status !== undefined) data.status = status;
+    if ("goalId" in body) data.goalId = goalId || null;
+    if ("productId" in body) data.productId = productId || null;
+    if (title !== undefined || description !== undefined) {
+      const nextTitle = title ?? (await prisma.opportunity.findUnique({ where: { id }, select: { title: true } }))?.title ?? "";
+      const nextDescription =
+        description !== undefined
+          ? description === null || description === "" ? null : String(description)
+          : (await prisma.opportunity.findUnique({ where: { id }, select: { description: true } }))?.description ?? null;
+      data.semanticEmbedding =
+        (await generateEmbedding(ctx.organizationId, `${nextTitle}${nextDescription ? ` - ${nextDescription}` : ""}`)) ?? undefined;
+    }
+
     const opp = await prisma.opportunity.update({
       where: { id },
       data,
       include: {
-        _count: { select: { feedbackLinks: true } },
+        _count: { select: { ideaLinks: true } },
         product: { select: { name: true } },
+        goal: { select: { id: true, title: true } },
       },
     });
 
-    const dimConfig = await getDimConfig();
+    const dimConfig = await getDimConfig(ctx.organizationId);
     const parsedScores = parseScores(opp.scores);
     let parsedExplanation: Record<string, string> = {};
     try {
       if (opp.explanation) parsedExplanation = JSON.parse(opp.explanation);
-    } catch {}
+    } catch {
+      parsedExplanation = {};
+    }
 
     return NextResponse.json({
       id: opp.id,
@@ -237,13 +322,15 @@ export async function PATCH(request: Request) {
       description: opp.description,
       productId: opp.productId,
       productName: opp.product?.name ?? null,
+      goalId: opp.goalId,
+      goalTitle: opp.goal?.title ?? null,
       scores: parsedScores,
       explanation: parsedExplanation,
       horizon: opp.horizon as "now" | "next" | "later" | null,
       quarter: opp.quarter,
-      status: opp.status as "draft" | "under_review" | "approved" | "on_roadmap" | "rejected",
+      status: opp.status as "not_on_roadmap" | "on_roadmap" | "archived",
       reportSummary: opp.reportSummary,
-      feedbackCount: opp._count.feedbackLinks,
+      feedbackCount: opp._count.ideaLinks,
       combinedScore: computeCombinedScore(parsedScores, dimConfig),
       createdAt: opp.createdAt.toISOString(),
     });
@@ -254,33 +341,43 @@ export async function PATCH(request: Request) {
 }
 
 export async function DELETE(request: Request) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const ctx = await getRequestContext();
+  if (!ctx) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  if (!hasMinimumRole(ctx.role, "editor")) return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+
   try {
     const { searchParams } = new URL(request.url);
     const id = searchParams.get("id");
     if (!id) return NextResponse.json({ error: "id required" }, { status: 400 });
 
-    // feedbackLinks cascade delete via schema; revert reviewed items with no remaining links
-    const linkedItems = await prisma.feedbackItemOpportunity.findMany({
-      where: { opportunityId: id },
-      select: { feedbackItemId: true },
+    const opportunity = await prisma.opportunity.findFirst({ where: { id, organizationId: ctx.organizationId }, select: { id: true } });
+    if (!opportunity) return NextResponse.json({ error: "Opportunity not found" }, { status: 404 });
+
+    // Get feedback items affected by ideas linked to this opportunity
+    const linkedIdeaLinks = await prisma.ideaOpportunity.findMany({
+      where: { opportunityId: id, idea: { organizationId: ctx.organizationId } },
+      select: { idea: { select: { feedbackItemId: true } } },
     });
-    const linkedIds = linkedItems.map((l) => l.feedbackItemId);
+    const linkedFeedbackIds = Array.from(new Set(
+      linkedIdeaLinks.map((l) => l.idea.feedbackItemId).filter(Boolean) as string[]
+    ));
 
     await prisma.opportunity.delete({ where: { id } });
 
-    // For each previously linked item, if it now has no opportunity links, revert to "new"
-    if (linkedIds.length > 0) {
-      const stillLinked = await prisma.feedbackItemOpportunity.findMany({
-        where: { feedbackItemId: { in: linkedIds } },
+    if (linkedFeedbackIds.length > 0) {
+      const stillLinked = await prisma.idea.findMany({
+        where: {
+          feedbackItemId: { in: linkedFeedbackIds },
+          organizationId: ctx.organizationId,
+          opportunityLinks: { some: {} },
+        },
         select: { feedbackItemId: true },
       });
-      const stillLinkedIds = new Set(stillLinked.map((l) => l.feedbackItemId));
-      const toRevert = linkedIds.filter((fid) => !stillLinkedIds.has(fid));
+      const stillLinkedIds = new Set(stillLinked.map((i) => i.feedbackItemId).filter(Boolean) as string[]);
+      const toRevert = linkedFeedbackIds.filter((fid) => !stillLinkedIds.has(fid));
       if (toRevert.length > 0) {
         await prisma.feedbackItem.updateMany({
-          where: { id: { in: toRevert }, status: "reviewed" },
+          where: { id: { in: toRevert }, status: "reviewed", organizationId: ctx.organizationId },
           data: { status: "new" },
         });
       }

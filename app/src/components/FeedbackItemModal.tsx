@@ -4,6 +4,7 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { XMarkIcon, ArrowTopRightOnSquareIcon } from "@heroicons/react/24/outline";
 import type { FeedbackItem } from "@/types";
+import { Button } from "@/components/ui";
 
 interface FeedbackItemModalProps {
   item: FeedbackItem | null;
@@ -43,22 +44,19 @@ export function FeedbackItemModal({ item, onClose }: FeedbackItemModalProps) {
       >
         <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-gray-900">Feedback Details</h2>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1">
             <a
               href={`/feedback?item=${item.id}`}
               target="_blank"
               rel="noopener noreferrer"
               title="Open in new tab"
-              className="text-gray-400 hover:text-gray-600"
+              className="p-1.5 rounded text-content-subtle hover:text-content hover:bg-surface-subtle transition-colors"
             >
               <ArrowTopRightOnSquareIcon className="h-5 w-5" />
             </a>
-            <button
-              onClick={onClose}
-              className="text-gray-400 hover:text-gray-500"
-            >
-              <XMarkIcon className="h-6 w-6" />
-            </button>
+            <Button variant="ghost" size="icon" onClick={onClose}>
+              <XMarkIcon className="h-5 w-5" />
+            </Button>
           </div>
         </div>
         <div className="p-6 space-y-4">
@@ -82,7 +80,7 @@ export function FeedbackItemModal({ item, onClose }: FeedbackItemModalProps) {
           )}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-            <p className="text-sm text-gray-600">{new Date(item.createdAt).toLocaleString()}</p>
+            <p className="text-sm text-gray-600">{new Date(item.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</p>
           </div>
 
           {hasMetadata && (

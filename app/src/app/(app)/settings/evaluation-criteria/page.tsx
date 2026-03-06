@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { Dimension } from "@/types";
 import { useDebounce } from "@/lib/useDebounce";
+import { Button, Input, Select, EmptyState } from "@/components/ui";
 
 const CONFIRM_PHRASE = "i want to delete this";
 const ARCHIVE_PHRASE = "archive";
@@ -134,27 +135,27 @@ export default function EvaluationCriteriaPage() {
   const archived = dimensions.filter((d) => d.archived);
   const totalWeight = active.reduce((sum, d) => sum + d.weight, 0);
 
-  if (loading) return <p className="text-gray-500">Loading…</p>;
+  if (loading) return <p className="text-content-muted">Loading…</p>;
 
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-xl font-semibold text-gray-900">Evaluation Criteria</h1>
-        <p className="text-sm text-gray-600 mt-1">
+        <h1 className="text-xl font-semibold text-content">Evaluation Criteria</h1>
+        <p className="text-sm text-content-muted mt-1">
           Define what matters to your team. Score each opportunity against these dimensions to surface the most important work.
         </p>
       </div>
 
       {/* Tabs */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-border">
         <nav className="-mb-px flex gap-6">
           <button
             type="button"
             onClick={() => setActiveTab("active")}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === "active"
-                ? "border-gray-900 text-gray-900"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-content text-content"
+                : "border-transparent text-content-muted hover:text-content"
             }`}
           >
             Active
@@ -164,13 +165,13 @@ export default function EvaluationCriteriaPage() {
             onClick={() => setActiveTab("archived")}
             className={`pb-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === "archived"
-                ? "border-gray-900 text-gray-900"
-                : "border-transparent text-gray-500 hover:text-gray-700"
+                ? "border-content text-content"
+                : "border-transparent text-content-muted hover:text-content"
             }`}
           >
             Archived
             {archived.length > 0 && (
-              <span className="ml-1.5 rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-600">
+              <span className="ml-1.5 rounded-full bg-surface-subtle px-2 py-0.5 text-xs text-content-muted">
                 {archived.length}
               </span>
             )}
@@ -182,43 +183,35 @@ export default function EvaluationCriteriaPage() {
       {activeTab === "active" && (
         <>
           {active.length === 0 ? (
-            <div className="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
-              <p className="text-sm font-medium text-gray-900">No criteria yet</p>
-              <p className="mt-1 text-sm text-gray-500">
-                Add dimensions that reflect your team&apos;s priorities — e.g. &ldquo;Carer impact&rdquo;, &ldquo;Dev complexity&rdquo;, &ldquo;Ops effort&rdquo;.
-              </p>
-              <button
-                type="button"
-                onClick={add}
-                className="mt-4 px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded hover:bg-gray-800"
-              >
-                Add your first dimension
-              </button>
-            </div>
+            <EmptyState
+              message="No criteria yet"
+              description={"Add dimensions that reflect your team's priorities — e.g. \"Carer impact\", \"Dev complexity\", \"Ops effort\"."}
+              action={<Button size="sm" onClick={add}>Add your first dimension</Button>}
+            />
           ) : (
-            <div className="shadow-sm ring-1 ring-black ring-opacity-5 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="shadow-sm ring-1 ring-border ring-opacity-5 rounded-lg">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-surface-muted">
                   <tr>
-                    <th className="py-3 pl-4 pr-3 text-left text-xs font-medium text-gray-500">
+                    <th className="py-3 pl-4 pr-3 text-left text-xs font-medium text-content-muted">
                       <span className="inline-flex items-center">
                         Dimension
                         <InfoIcon tip="What you're measuring, e.g. 'Dev complexity' or 'Carer impact'" />
                       </span>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 whitespace-nowrap">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-content-muted whitespace-nowrap">
                       <span className="inline-flex items-center">
                         Answer type
                         <InfoIcon tip="How scorers will answer: a 1–3 scale or a simple Yes/No question" />
                       </span>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-content-muted">
                       <span className="inline-flex items-center">
                         Direction
                         <InfoIcon tip="Whether a higher score (or Yes) is good or bad for this dimension" />
                       </span>
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-content-muted">
                       <span className="inline-flex items-center">
                         Importance
                         <InfoIcon tip="How much this dimension contributes to the overall score relative to others" />
@@ -229,50 +222,57 @@ export default function EvaluationCriteriaPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody className="divide-y divide-border bg-surface">
                   {active.map((d) => {
                     const pct = totalWeight > 0 ? Math.round((d.weight / totalWeight) * 100) : 0;
                     return (
-                      <tr key={d.id} className="hover:bg-gray-50/50">
+                      <tr key={d.id} className="hover:bg-surface-muted/50">
                         {/* Name */}
                         <td className="py-2 pl-4 pr-3">
-                          <input
+                          <Input
                             value={d.name}
                             onChange={(e) => {
                               updateLocal(d.id, { name: e.target.value });
-                              debouncedSave(d.id, { name: e.target.value });
+                              if (e.target.value.trim()) {
+                                debouncedSave(d.id, { name: e.target.value });
+                              }
+                            }}
+                            onBlur={(e) => {
+                              if (e.target.value.trim()) {
+                                save(d.id, { name: e.target.value.trim() });
+                              }
                             }}
                             placeholder="e.g. Carer impact"
-                            className="w-full px-2 py-1 border border-transparent hover:border-gray-300 focus:border-gray-400 rounded text-sm font-medium text-gray-900 focus:outline-none focus:ring-1 focus:ring-gray-400 bg-transparent"
+                            className={`py-1 font-medium bg-transparent ${d.name.trim() ? "border-transparent hover:border-border-strong" : "border-danger"}`}
                           />
                         </td>
 
                         {/* Answer type */}
                         <td className="px-3 py-2 whitespace-nowrap">
-                          <select
+                          <Select
                             value={d.type}
                             onChange={(e) => {
                               const type = e.target.value as "yesno" | "scale";
                               updateLocal(d.id, { type });
                               save(d.id, { type });
                             }}
-                            className="w-36 px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                            className="w-36 py-1.5"
                           >
                             <option value="scale">1 – 3 scale</option>
                             <option value="yesno">Yes / No</option>
-                          </select>
+                          </Select>
                         </td>
 
                         {/* Direction */}
                         <td className="px-3 py-2 whitespace-nowrap">
-                          <select
+                          <Select
                             value={d.direction}
                             onChange={(e) => {
                               const direction = e.target.value as "benefit" | "cost";
                               updateLocal(d.id, { direction });
                               save(d.id, { direction });
                             }}
-                            className="w-36 px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                            className="w-36 py-1.5"
                           >
                             {d.type === "yesno" ? (
                               <>
@@ -285,38 +285,41 @@ export default function EvaluationCriteriaPage() {
                                 <option value="cost">↓ Bad</option>
                               </>
                             )}
-                          </select>
+                          </Select>
                         </td>
 
                         {/* Importance */}
                         <td className="px-3 py-2 whitespace-nowrap">
                           <div className="flex items-center gap-2">
-                            <select
+                            <Select
                               value={d.weight}
                               onChange={(e) => {
                                 const weight = parseFloat(e.target.value);
                                 updateLocal(d.id, { weight });
                                 save(d.id, { weight });
                               }}
-                              className="w-36 px-2 py-1 border border-gray-300 rounded text-sm bg-white"
+                              className="w-36 py-1.5"
                             >
                               <option value="1">Low</option>
                               <option value="2">Medium</option>
                               <option value="3">High</option>
-                            </select>
-                            <span className="text-xs text-gray-400">{pct}%</span>
+                            </Select>
+                            <span className="text-xs text-content-subtle">{pct}%</span>
                           </div>
                         </td>
 
                         {/* Archive */}
                         <td className="pl-3 pr-4 py-2 text-right whitespace-nowrap">
-                          <button
+                          <Button
                             type="button"
+                            variant="ghost"
+                            size="sm"
                             onClick={() => { setArchiveInput(""); setArchiveModal(d); }}
-                            className="text-sm text-gray-400 hover:text-gray-600"
+                            disabled={!d.name.trim()}
+                            title={!d.name.trim() ? "Add a name before archiving" : undefined}
                           >
                             Archive
-                          </button>
+                          </Button>
                         </td>
                       </tr>
                     );
@@ -324,14 +327,10 @@ export default function EvaluationCriteriaPage() {
                 </tbody>
               </table>
 
-              <div className="bg-gray-50 px-4 py-3 border-t border-gray-200">
-                <button
-                  type="button"
-                  onClick={add}
-                  className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-                >
+                      <div className="bg-surface-muted px-4 py-3 border-t border-border">
+                <Button type="button" variant="ghost" size="sm" onClick={add}>
                   + Add dimension
-                </button>
+                </Button>
               </div>
             </div>
           )}
@@ -342,24 +341,22 @@ export default function EvaluationCriteriaPage() {
       {activeTab === "archived" && (
         <>
           {archived.length === 0 ? (
-            <div className="rounded-lg border-2 border-dashed border-gray-200 p-8 text-center">
-              <p className="text-sm font-medium text-gray-900">No archived dimensions</p>
-              <p className="mt-1 text-sm text-gray-500">
-                Archived dimensions are hidden from scoring but their historical scores are preserved.
-              </p>
-            </div>
+            <EmptyState
+              message="No archived dimensions"
+              description="Archived dimensions are hidden from scoring but their historical scores are preserved."
+            />
           ) : (
-            <div className="shadow-sm ring-1 ring-black ring-opacity-5 rounded-lg">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="shadow-sm ring-1 ring-border ring-opacity-5 rounded-lg">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-surface-muted">
                   <tr>
-                    <th className="py-3 pl-4 pr-3 text-left text-xs font-medium text-gray-500">
+                    <th className="py-3 pl-4 pr-3 text-left text-xs font-medium text-content-muted">
                       Dimension
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 whitespace-nowrap">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-content-muted whitespace-nowrap">
                       Answer type
                     </th>
-                    <th className="px-3 py-3 text-left text-xs font-medium text-gray-500">
+                    <th className="px-3 py-3 text-left text-xs font-medium text-content-muted">
                       Direction
                     </th>
                     <th className="relative py-3 pl-3 pr-4">
@@ -367,36 +364,28 @@ export default function EvaluationCriteriaPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-gray-200 bg-white">
+                <tbody className="divide-y divide-border bg-surface">
                   {archived.map((d) => (
-                    <tr key={d.id} className="hover:bg-gray-50/50">
-                      <td className="py-3 pl-4 pr-3 text-sm font-medium text-gray-500">
-                        {d.name || <span className="italic text-gray-300">Unnamed</span>}
+                    <tr key={d.id} className="hover:bg-surface-muted/50">
+                      <td className="py-3 pl-4 pr-3 text-sm font-medium text-content-muted">
+                        {d.name || <span className="italic text-content-subtle">Unnamed</span>}
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-400 whitespace-nowrap">
+                      <td className="px-3 py-3 text-sm text-content-subtle whitespace-nowrap">
                         {d.type === "scale" ? "1 – 3 scale" : "Yes / No"}
                       </td>
-                      <td className="px-3 py-3 text-sm text-gray-400 whitespace-nowrap">
+                      <td className="px-3 py-3 text-sm text-content-subtle whitespace-nowrap">
                         {d.type === "yesno"
                           ? d.direction === "benefit" ? "Yes = good" : "Yes = bad"
                           : d.direction === "benefit" ? "↑ Good" : "↓ Bad"}
                       </td>
                       <td className="pl-3 pr-4 py-3 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-3">
-                          <button
-                            type="button"
-                            onClick={() => restore(d.id)}
-                            className="text-sm text-gray-600 hover:text-gray-900 font-medium"
-                          >
+                        <div className="flex items-center justify-end gap-2">
+                          <Button type="button" variant="ghost" size="sm" onClick={() => restore(d.id)}>
                             Restore
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => openDeleteModal(d)}
-                            className="text-sm text-red-500 hover:text-red-700"
-                          >
+                          </Button>
+                          <Button type="button" variant="danger" size="sm" onClick={() => openDeleteModal(d)}>
                             Delete permanently
-                          </button>
+                          </Button>
                         </div>
                       </td>
                     </tr>
@@ -411,48 +400,42 @@ export default function EvaluationCriteriaPage() {
       {/* Archive confirmation modal */}
       {archiveModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => !archiving && setArchiveModal(null)} />
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-900">
+          <div className="fixed inset-0 bg-brand/40 backdrop-blur-[1px]" onClick={() => !archiving && setArchiveModal(null)} />
+          <div className="relative bg-surface rounded-xl shadow-2xl ring-1 ring-border w-full max-w-md p-6 space-y-4">
+            <h2 className="text-base font-semibold text-content">
               Archive &ldquo;{archiveModal.name || "Unnamed"}&rdquo;?
             </h2>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-content-muted">
               This dimension will be hidden from scoring panels. Existing scores on all opportunities are preserved and will still contribute to their combined scores.
             </p>
-            <p className="text-sm text-gray-600">
+            <p className="text-sm text-content-muted">
               You can restore it at any time from the Archived tab.
             </p>
             <div className="space-y-1">
-              <label className="block text-sm text-gray-700">
-                Type <span className="font-mono font-semibold text-gray-900">{ARCHIVE_PHRASE}</span> to confirm
+              <label className="block text-sm text-content-muted">
+                Type <span className="font-mono font-semibold text-content">{ARCHIVE_PHRASE}</span> to confirm
               </label>
-              <input
+              <Input
                 type="text"
                 value={archiveInput}
                 onChange={(e) => setArchiveInput(e.target.value)}
                 placeholder={ARCHIVE_PHRASE}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-gray-400 focus:border-gray-400"
                 disabled={archiving}
                 autoFocus
               />
             </div>
             <div className="flex justify-end gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setArchiveModal(null)}
-                disabled={archiving}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:opacity-50"
-              >
+              <Button type="button" variant="ghost" onClick={() => setArchiveModal(null)} disabled={archiving}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
                 onClick={confirmArchive}
                 disabled={archiveInput !== ARCHIVE_PHRASE || archiving}
-                className="px-4 py-2 text-sm font-medium text-white bg-gray-800 rounded hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed"
+                loading={archiving}
               >
                 {archiving ? "Archiving…" : "Archive"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>
@@ -461,63 +444,58 @@ export default function EvaluationCriteriaPage() {
       {/* Delete confirmation modal */}
       {deleteModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/40" onClick={() => !deleting && setDeleteModal(null)} />
-          <div className="relative bg-white rounded-lg shadow-xl w-full max-w-md p-6 space-y-4">
-            <h2 className="text-base font-semibold text-gray-900">
+          <div className="fixed inset-0 bg-brand/40 backdrop-blur-[1px]" onClick={() => !deleting && setDeleteModal(null)} />
+          <div className="relative bg-surface rounded-xl shadow-2xl ring-1 ring-border w-full max-w-md p-6 space-y-4">
+            <h2 className="text-base font-semibold text-content">
               Permanently delete &ldquo;{deleteModal.dimension.name || "Unnamed"}&rdquo;?
             </h2>
 
             {deleteModal.scoredCount > 0 ? (
-              <div className="rounded-md bg-red-50 border border-red-200 p-3">
-                <p className="text-sm text-red-800 font-medium">
+              <div className="rounded-md bg-danger-bg border border-danger/20 p-3">
+                <p className="text-sm text-danger font-medium">
                   {deleteModal.scoredCount}{" "}
                   {deleteModal.scoredCount === 1 ? "opportunity has" : "opportunities have"} scores
                   recorded for this dimension.
                 </p>
-                <p className="text-sm text-red-700 mt-1">
+                <p className="text-sm text-danger mt-1">
                   Those scores will be silently dropped from combined score calculations. This cannot be undone.
                 </p>
               </div>
             ) : (
-              <p className="text-sm text-gray-600">
+              <p className="text-sm text-content-muted">
                 No opportunities have been scored on this dimension yet. This cannot be undone.
               </p>
             )}
 
             <div className="space-y-1">
-              <label className="block text-sm text-gray-700">
+              <label className="block text-sm text-content-muted">
                 Type{" "}
-                <span className="font-mono font-semibold text-gray-900">{CONFIRM_PHRASE}</span>{" "}
+                <span className="font-mono font-semibold text-content">{CONFIRM_PHRASE}</span>{" "}
                 to confirm
               </label>
-              <input
+              <Input
                 type="text"
                 value={deleteInput}
                 onChange={(e) => setDeleteInput(e.target.value)}
                 placeholder={CONFIRM_PHRASE}
-                className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-red-400 focus:border-red-400"
                 disabled={deleting}
                 autoFocus
               />
             </div>
 
             <div className="flex justify-end gap-3 pt-1">
-              <button
-                type="button"
-                onClick={() => setDeleteModal(null)}
-                disabled={deleting}
-                className="px-4 py-2 text-sm font-medium text-gray-700 hover:text-gray-900 disabled:opacity-50"
-              >
+              <Button type="button" variant="ghost" onClick={() => setDeleteModal(null)} disabled={deleting}>
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
+                variant="danger"
                 onClick={confirmDelete}
                 disabled={deleteInput !== CONFIRM_PHRASE || deleting}
-                className="px-4 py-2 text-sm font-medium text-white bg-red-600 rounded hover:bg-red-700 disabled:opacity-40 disabled:cursor-not-allowed"
+                loading={deleting}
               >
                 {deleting ? "Deleting…" : "Delete permanently"}
-              </button>
+              </Button>
             </div>
           </div>
         </div>

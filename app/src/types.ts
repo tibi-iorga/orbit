@@ -13,6 +13,12 @@ export interface Dimension {
 }
 
 export type FeedbackStatus = "new" | "reviewed" | "rejected";
+export type FeedbackProcessingStatus = "not_processed" | "processing" | "processed" | "failed";
+
+export interface FeedbackInsights {
+  chunks: string[];
+  opportunities: Array<{ title: string; feedbackCount: number }>;
+}
 
 export interface FeedbackItem {
   id: string;
@@ -20,6 +26,9 @@ export interface FeedbackItem {
   description: string | null;
   metadata: Record<string, string> | null;
   status: FeedbackStatus;
+  processingStatus: FeedbackProcessingStatus;
+  feedbackInsights?: FeedbackInsights;
+  ideas: string[];
   opportunities: { id: string; title: string }[];
   productId: string | null;
   productName: string | null;
@@ -33,12 +42,15 @@ export interface Opportunity {
   description: string | null;
   productId: string | null;
   productName: string | null;
+  goalId: string | null;
+  goalTitle: string | null;
   scores: Record<string, number>;
   explanation: Record<string, string>;
   reportSummary: string | null;
   horizon: "now" | "next" | "later" | null;
   quarter: string | null;
-  status: "draft" | "under_review" | "approved" | "on_roadmap" | "rejected";
+  status: "not_on_roadmap" | "on_roadmap" | "archived";
+  confidence: number;
   feedbackCount: number;
   combinedScore: number;
   createdAt: string;
